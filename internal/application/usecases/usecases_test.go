@@ -230,3 +230,202 @@ func TestGetPath_NotFound_ReturnsErrPathNotFound(t *testing.T) {
 		t.Fatalf("want ErrPathNotFound, got %v", err)
 	}
 }
+
+func TestDefinePath_RepoFindError_PropagatesAndSkipsMetrics(t *testing.T) {
+	wantErr := errors.New("boom: repo unreachable")
+	repo := &erroringRepo{fakeRepo: newFakeRepo(), findErr: wantErr}
+	pub := &fakePublisher{}
+	metrics := &recordingMetrics{}
+	uc := &usecases.DefinePath{Repo: repo, Publisher: pub, Clock: fixedClock{time.Now()}, Metrics: metrics}
+
+	_, err := uc.Execute(context.Background(), "PICK", "pick", true, []shared.Capability{"pick"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("want the repo error propagated, got %v", err)
+	}
+	if metrics.accepted != 0 || metrics.rejected != 0 {
+		t.Fatalf("want no metrics recorded on a repo lookup failure, got %+v", metrics)
+	}
+}
+
+func TestDefinePath_RepoSaveError_Propagates(t *testing.T) {
+	wantErr := errors.New("boom: save failed")
+	repo := &erroringRepo{fakeRepo: newFakeRepo(), saveErr: wantErr}
+	pub := &fakePublisher{}
+	uc := &usecases.DefinePath{Repo: repo, Publisher: pub, Clock: fixedClock{time.Now()}}
+
+	_, err := uc.Execute(context.Background(), "PICK", "pick", true, []shared.Capability{"pick"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("want the save error propagated, got %v", err)
+	}
+}
+
+func TestDefinePath_PublishError_Propagates(t *testing.T) {
+	wantErr := errors.New("boom: publish failed")
+	repo := newFakeRepo()
+	pub := &erroringPublisher{err: wantErr}
+	uc := &usecases.DefinePath{Repo: repo, Publisher: pub, Clock: fixedClock{time.Now()}}
+
+	_, err := uc.Execute(context.Background(), "PICK", "pick", true, []shared.Capability{"pick"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("want the publish error propagated, got %v", err)
+	}
+}
+
+func TestDefinePath_InvalidInput_RecordsRejectedMetric(t *testing.T) {
+	repo := newFakeRepo()
+	pub := &fakePublisher{}
+	metrics := &recordingMetrics{}
+	uc := &usecases.DefinePath{Repo: repo, Publisher: pub, Clock: fixedClock{time.Now()}, Metrics: metrics}
+
+	_, err := uc.Execute(context.Background(), "PICK", "", true, []shared.Capability{"pick"})
+	if err == nil {
+		t.Fatal("expected an error for an empty matchPrefix")
+	}
+	if metrics.rejected != 1 || metrics.accepted != 0 {
+		t.Fatalf("want 1 rejected metric recorded, got %+v", metrics)
+	}
+}
+
+func TestDefinePath_ValidInput_RecordsAcceptedMetric(t *testing.T) {
+	repo := newFakeRepo()
+	pub := &fakePublisher{}
+	metrics := &recordingMetrics{}
+	uc := &usecases.DefinePath{Repo: repo, Publisher: pub, Clock: fixedClock{time.Now()}, Metrics: metrics}
+
+	if _, err := uc.Execute(context.Background(), "PICK", "pick", true, []shared.Capability{"pick"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if metrics.accepted != 1 || metrics.rejected != 0 {
+		t.Fatalf("want 1 accepted metric recorded, got %+v", metrics)
+	}
+}
+
+func TestDefinePath_DuplicateId_RecordsRejectedMetric(t *testing.T) {
+	repo := newFakeRepo()
+	pub := &fakePublisher{}
+	metrics := &recordingMetrics{}
+	uc := &usecases.DefinePath{Repo: repo, Publisher: pub, Clock: fixedClock{time.Now()}, Metrics: metrics}
+	ctx := context.Background()
+
+	if _, err := uc.Execute(ctx, "PICK", "pick", true, []shared.Capability{"pick"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := uc.Execute(ctx, "PICK", "pick", true, []shared.Capability{"pick"}); !errors.Is(err, usecases.ErrPathAlreadyExists) {
+		t.Fatalf("want ErrPathAlreadyExists, got %v", err)
+	}
+	if metrics.rejected != 1 || metrics.accepted != 1 {
+		t.Fatalf("want 1 accepted + 1 rejected metric, got %+v", metrics)
+	}
+}
+
+func TestRevisePath_RepoFindError_Propagates(t *testing.T) {
+	wantErr := errors.New("boom: repo unreachable")
+	repo := &erroringRepo{fakeRepo: newFakeRepo(), findErr: wantErr}
+	pub := &fakePublisher{}
+	uc := &usecases.RevisePath{Repo: repo, Publisher: pub, Clock: fixedClock{time.Now()}}
+
+	_, err := uc.Execute(context.Background(), "PICK", "pick", []shared.Capability{"pick"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("want the repo error propagated, got %v", err)
+	}
+}
+
+func TestRevisePath_RepoSaveError_Propagates(t *testing.T) {
+	inner := newFakeRepo()
+	pub := &fakePublisher{}
+	define := &usecases.DefinePath{Repo: inner, Publisher: pub, Clock: fixedClock{time.Now()}}
+	if _, err := define.Execute(context.Background(), "PICK", "pick", true, []shared.Capability{"pick"}); err != nil {
+		t.Fatalf("setup: unexpected error: %v", err)
+	}
+
+	wantErr := errors.New("boom: save failed")
+	repo := &erroringRepo{fakeRepo: inner, saveErr: wantErr}
+	revise := &usecases.RevisePath{Repo: repo, Publisher: pub, Clock: fixedClock{time.Now()}}
+
+	_, err := revise.Execute(context.Background(), "PICK", "pick-v2", []shared.Capability{"pick"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("want the save error propagated, got %v", err)
+	}
+}
+
+func TestRevisePath_PublishError_Propagates(t *testing.T) {
+	repo := newFakeRepo()
+	pub := &fakePublisher{}
+	define := &usecases.DefinePath{Repo: repo, Publisher: pub, Clock: fixedClock{time.Now()}}
+	if _, err := define.Execute(context.Background(), "PICK", "pick", true, []shared.Capability{"pick"}); err != nil {
+		t.Fatalf("setup: unexpected error: %v", err)
+	}
+
+	wantErr := errors.New("boom: publish failed")
+	revise := &usecases.RevisePath{Repo: repo, Publisher: &erroringPublisher{err: wantErr}, Clock: fixedClock{time.Now()}}
+	_, err := revise.Execute(context.Background(), "PICK", "pick-v2", []shared.Capability{"pick"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("want the publish error propagated, got %v", err)
+	}
+}
+
+func TestDeactivatePath_RepoFindError_Propagates(t *testing.T) {
+	wantErr := errors.New("boom: repo unreachable")
+	repo := &erroringRepo{fakeRepo: newFakeRepo(), findErr: wantErr}
+	pub := &fakePublisher{}
+	uc := &usecases.DeactivatePath{Repo: repo, Publisher: pub, Clock: fixedClock{time.Now()}}
+
+	if err := uc.Execute(context.Background(), "PICK"); !errors.Is(err, wantErr) {
+		t.Fatalf("want the repo error propagated, got %v", err)
+	}
+}
+
+func TestDeactivatePath_RepoSaveError_Propagates(t *testing.T) {
+	inner := newFakeRepo()
+	pub := &fakePublisher{}
+	define := &usecases.DefinePath{Repo: inner, Publisher: pub, Clock: fixedClock{time.Now()}}
+	if _, err := define.Execute(context.Background(), "PICK", "pick", true, []shared.Capability{"pick"}); err != nil {
+		t.Fatalf("setup: unexpected error: %v", err)
+	}
+
+	wantErr := errors.New("boom: save failed")
+	repo := &erroringRepo{fakeRepo: inner, saveErr: wantErr}
+	uc := &usecases.DeactivatePath{Repo: repo, Publisher: pub, Clock: fixedClock{time.Now()}}
+
+	if err := uc.Execute(context.Background(), "PICK"); !errors.Is(err, wantErr) {
+		t.Fatalf("want the save error propagated, got %v", err)
+	}
+}
+
+func TestDeactivatePath_PublishError_Propagates(t *testing.T) {
+	repo := newFakeRepo()
+	pub := &fakePublisher{}
+	define := &usecases.DefinePath{Repo: repo, Publisher: pub, Clock: fixedClock{time.Now()}}
+	if _, err := define.Execute(context.Background(), "PICK", "pick", true, []shared.Capability{"pick"}); err != nil {
+		t.Fatalf("setup: unexpected error: %v", err)
+	}
+
+	wantErr := errors.New("boom: publish failed")
+	uc := &usecases.DeactivatePath{Repo: repo, Publisher: &erroringPublisher{err: wantErr}, Clock: fixedClock{time.Now()}}
+	if err := uc.Execute(context.Background(), "PICK"); !errors.Is(err, wantErr) {
+		t.Fatalf("want the publish error propagated, got %v", err)
+	}
+}
+
+func TestListPaths_RepoError_Propagates(t *testing.T) {
+	wantErr := errors.New("boom: repo unreachable")
+	repo := &erroringRepo{fakeRepo: newFakeRepo(), listErr: wantErr}
+	list := &usecases.ListPaths{Repo: repo}
+
+	if _, err := list.Execute(context.Background(), true); !errors.Is(err, wantErr) {
+		t.Fatalf("want the repo error propagated for activeOnly=true, got %v", err)
+	}
+	if _, err := list.Execute(context.Background(), false); !errors.Is(err, wantErr) {
+		t.Fatalf("want the repo error propagated for activeOnly=false, got %v", err)
+	}
+}
+
+func TestGetPath_RepoError_Propagates(t *testing.T) {
+	wantErr := errors.New("boom: repo unreachable")
+	repo := &erroringRepo{fakeRepo: newFakeRepo(), findErr: wantErr}
+	uc := &usecases.GetPath{Repo: repo}
+
+	if _, err := uc.Execute(context.Background(), "PICK"); !errors.Is(err, wantErr) {
+		t.Fatalf("want the repo error propagated, got %v", err)
+	}
+}

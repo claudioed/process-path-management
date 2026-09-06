@@ -115,3 +115,39 @@ func TestRequiredCapabilities_ReturnsDefensiveCopy(t *testing.T) {
 		t.Fatal("expected internal state to be unaffected by mutating the returned slice")
 	}
 }
+
+func TestRehydrate_ReconstructsWithoutRevalidating(t *testing.T) {
+	created := time.Now().Add(-time.Hour)
+	updated := time.Now()
+	// Rehydrate deliberately accepts state that Define would reject (e.g. an
+	// uppercase matchPrefix), because it reconstructs already-persisted,
+	// already-validated-at-write-time data -- repository adapters must
+	// never re-run construction invariants on read.
+	p := Rehydrate("PICK", "PICK-LEGACY", false, []shared.Capability{"pick"}, StatusDeactivated, created, updated)
+	if p.ID() != "PICK" {
+		t.Fatalf("want id PICK, got %s", p.ID())
+	}
+	if p.MatchPrefix() != "PICK-LEGACY" {
+		t.Fatalf("want matchPrefix PICK-LEGACY, got %s", p.MatchPrefix())
+	}
+	if p.Direct() {
+		t.Fatal("want direct=false")
+	}
+	if p.Status() != StatusDeactivated || p.IsActive() {
+		t.Fatal("want rehydrated status Deactivated")
+	}
+	if p.CreatedAt() != created || p.UpdatedAt() != updated {
+		t.Fatal("want createdAt/updatedAt to match the rehydrated values exactly")
+	}
+}
+
+func TestRevise_DifferentCapabilityCount_ReturnsChangedTrue(t *testing.T) {
+	p, _ := Define("PICK", "pick", true, []shared.Capability{"pick"}, time.Now())
+	changed, err := p.Revise("pick", []shared.Capability{"pick", "hazmat"}, time.Now())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true when the capability count differs, even if matchPrefix is unchanged")
+	}
+}

@@ -91,3 +91,58 @@ func (p *fakePublisher) last() shared.DomainEvent {
 type fixedClock struct{ t time.Time }
 
 func (c fixedClock) Now() time.Time { return c.t }
+
+// erroringRepo wraps a fakeRepo and forces every FindByID/Save/List call to
+// fail, so use-case error-propagation branches (repository failures) are
+// exercised without a real database.
+type erroringRepo struct {
+	*fakeRepo
+	findErr error
+	saveErr error
+	listErr error
+}
+
+func (r *erroringRepo) FindByID(ctx context.Context, id shared.PathId) (*processpath.ProcessPath, error) {
+	if r.findErr != nil {
+		return nil, r.findErr
+	}
+	return r.fakeRepo.FindByID(ctx, id)
+}
+
+func (r *erroringRepo) Save(ctx context.Context, p *processpath.ProcessPath) error {
+	if r.saveErr != nil {
+		return r.saveErr
+	}
+	return r.fakeRepo.Save(ctx, p)
+}
+
+func (r *erroringRepo) ListActive(ctx context.Context) ([]*processpath.ProcessPath, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+	return r.fakeRepo.ListActive(ctx)
+}
+
+func (r *erroringRepo) ListAll(ctx context.Context) ([]*processpath.ProcessPath, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+	return r.fakeRepo.ListAll(ctx)
+}
+
+// erroringPublisher always fails Publish, so use-case error-propagation
+// branches (publish failures) are exercised.
+type erroringPublisher struct{ err error }
+
+func (p *erroringPublisher) Publish(context.Context, shared.DomainEvent) error { return p.err }
+
+// recordingMetrics records PathDefinitionAccepted/Rejected calls, so
+// DefinePath's optional-metrics branches are exercised (a nil Metrics is
+// already covered by every other test in this file).
+type recordingMetrics struct {
+	accepted int
+	rejected int
+}
+
+func (m *recordingMetrics) PathDefinitionAccepted(context.Context) { m.accepted++ }
+func (m *recordingMetrics) PathDefinitionRejected(context.Context) { m.rejected++ }
