@@ -1,9 +1,9 @@
 name: CI
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, feature/process-path-aggregate-and-usecases]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, feature/process-path-aggregate-and-usecases]
   schedule:
     - cron: "0 6 * * 1"   # weekly, Monday 6am UTC, for the mutation job only
   workflow_dispatch: {}

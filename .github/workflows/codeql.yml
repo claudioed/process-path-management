@@ -2,9 +2,9 @@ name: CodeQL
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, feature/process-path-aggregate-and-usecases]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, feature/process-path-aggregate-and-usecases]
   schedule:
     # Weekly deep scan catches newly-published query packs even with no
     # code changes (CodeQL's rule set updates independently of this repo).
