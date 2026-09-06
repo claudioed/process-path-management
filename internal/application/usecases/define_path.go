@@ -19,6 +19,9 @@ type DefinePath struct {
 	Repo      ports.ProcessPathRepo
 	Publisher ports.EventPublisher
 	Clock     ports.Clock
+	// Metrics is optional (fleet convention: a nil value means "not
+	// instrumented", see ports.PathMetrics's doc comment).
+	Metrics ports.PathMetrics
 }
 
 func (uc *DefinePath) Execute(ctx context.Context, id shared.PathId, matchPrefix string, direct bool, requiredCapabilities []shared.Capability) (*processpath.ProcessPath, error) {
@@ -27,12 +30,14 @@ func (uc *DefinePath) Execute(ctx context.Context, id shared.PathId, matchPrefix
 		return nil, err
 	}
 	if existing != nil {
+		uc.recordRejected(ctx)
 		return nil, ErrPathAlreadyExists
 	}
 
 	now := uc.Clock.Now()
 	p, err := processpath.Define(id, matchPrefix, direct, requiredCapabilities, now)
 	if err != nil {
+		uc.recordRejected(ctx)
 		return nil, err
 	}
 	if err := uc.Repo.Save(ctx, p); err != nil {
@@ -47,5 +52,14 @@ func (uc *DefinePath) Execute(ctx context.Context, id shared.PathId, matchPrefix
 	}); err != nil {
 		return nil, err
 	}
+	if uc.Metrics != nil {
+		uc.Metrics.PathDefinitionAccepted(ctx)
+	}
 	return p, nil
+}
+
+func (uc *DefinePath) recordRejected(ctx context.Context) {
+	if uc.Metrics != nil {
+		uc.Metrics.PathDefinitionRejected(ctx)
+	}
 }

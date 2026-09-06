@@ -44,3 +44,18 @@ type EventPublisher interface {
 type Clock interface {
 	Now() time.Time
 }
+
+// PathMetrics records DefinePath outcomes (fleet-standard-metrics ADR,
+// Tier 2) so the business signal — how often an operator's attempt to
+// define a new process path actually takes effect versus gets rejected —
+// is observable independently of HTTP traffic. Use cases treat a nil
+// value as "not instrumented", mirroring inventory-storage's
+// ports.ReservationMetrics and labor-performance's ports.StandardMetrics.
+type PathMetrics interface {
+	// PathDefinitionAccepted records a DefinePath call that persisted
+	// successfully.
+	PathDefinitionAccepted(ctx context.Context)
+	// PathDefinitionRejected records a DefinePath call rejected for
+	// invalid input or a duplicate PathId.
+	PathDefinitionRejected(ctx context.Context)
+}
