@@ -1,0 +1,71 @@
+---
+id: list-paths
+title: "List process paths"
+description: "Returns only Active paths by default — matching the retired YAML catalogue's own posture that every consumer's normal read is 'the currently valid set,' not everything that ever existed. Pass ?all=true for the audit view (Active and Deactivated paths)."
+sidebar_label: "List process paths"
+hide_title: true
+hide_table_of_contents: true
+api: eJztVs2O2zYQfpUBL0kA2d72FAgoCmOzKBZJkEXqtCiSHMbUSGKWIhXO0F7BMJCH6BP2SYqRvLt2nbTIvb7YJjk//Ga+b7gzgg2b8r3pU7TEPOtRWjYfCxN7SiguhuvKlMY7lptxqzAVsU2u1z1TmrckOQWGGPwASytuQzA6gfUAFdWYvcBfX/6EDsW2LjQgLUEicYkq+GP5+hVYFPSxyfSEIW4D9JElJwJpUYA2lAawMXDuKD1hCDF16CERVuAYPhj1Z3NKFMQPsEHvKmCS4oOBEA8O5BD54BDozrFQNYcbZIaf0fufJGWCOqYxP8yVE9g42sLTw6UwVPCCUP+gUDVd8tn8QzCF6TFhR0JJsdyZgB2Z0qD3pjBOUfqcKQ2mMIk+Z724KWv0TIVh21KHptwZGXo1WsfoCcOI8wje4ej+n8D/3lIATboAF6zPFfF5fiAxzs3+o0bmPgYm1lg/Xlzo16nD1ViXz5kUGUUQYg2Hvpi8mcLYGISCqDX2vXd27JHFJ1YXu/PrYEqoF3dCHR+tx/UnsqLQJe00cVNiGkYb7uEcS3KhMYWhO+x6r0s315cvzb4wY0PdJKrd3b8b9M7eqkHlksY8x3r/WJhL7HHtvLtP6D+ucYi2Pwr3for3cV8YFpT8leOFoZA7Pbq8XF3/dmUK8+Jq/LlcXb0YTW0ireJSvmZdKwXElKZCoZm4jjSD3FffZ7IvjDiZMJ3KrBQ3+/FTmI6kjUr+hsZC6V5pFqdKURimtLlv/Jy8KU0r0peLhY8WfRtZyucXzy/OhOOVbkNFG/Kx77SntE1dqOOY/2lioJnBawzYkJ6F5c31mcc3o2TFNLMx1K7JCdee4DjfR6kpwWKIwWkOrqIgToZipP5RW0HKnqCK28CSCLsHGWLITCAREnH0Kg5g0XtKM87KCqrAVbqPI3Ggxs75oRg1ZJSroy4DBO0TZREyR+tQCLrMAm30o5NtTLeTdqmzOaxax6CwO6uM7T1aYtjqgS1yAWuqYyJwci9zxX0MOwlu7TzB0y0mamNmmrlQJ1xMqJ3Wd8ExicI4q+18wM4/Ax+xogpisAQosI5RVOrr7GvnvRZnRndks96ogC3xTPOf9R5DcKGZQNClOiZLs+6hpnO4FlV0BejXN+/eXl6pAOm/kxL2ee0dt1SBx9BkbKiAMIo6PtRHDTEMMRCQZ50rOoEOo6TF0BC0pBCx+u6xGRUzhi2mCujO+sxuQzpNHMJLrG8RnjIRYO94gTwEi72b8LgPLm2KuWkV6SHYNsUQM49dsUZ7Cy5IBDkq3DQ4lDlT8/4wv5grSbyzFJiUA4cx8vp6pfRW5cVJvg4b3+LGirAzxREZuVwsGidtXs9t7BbW63iLVJ3U+qgSozToFO4wHMV75VjOBsIJBXeP8+H/h4HW9yDDQney6D26cdaMhdkdBPUrTy/VTN3Y7dbI9C75/V6XpzeEymzlWDn5+Ir4ZhG+45HwjWRvaXh4ymzQZz0xKvUGk9MsTPleB1ZLWFEa05tMltZSL0dWZ+8F9fIwZH65Wpn9/m/Vvbph
+sidebar_class_name: "get api-method"
+info_path: docs/api-reference/rest/process-path-management-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"List process paths"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"get"}
+  path={"/process-paths"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Returns only Active paths by default — matching the retired YAML catalogue's own posture that every consumer's normal read is "the currently valid set," not everything that ever existed. Pass ?all=true for the audit view (Active and Deactivated paths).
+
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./list-paths.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./list-paths.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./list-paths.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

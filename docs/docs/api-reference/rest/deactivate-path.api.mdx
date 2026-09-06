@@ -1,0 +1,71 @@
+---
+id: deactivate-path
+title: "Deactivate (retire) a process path"
+description: "Idempotent: deactivating an already-deactivated path is a no-op success and does NOT republish ProcessPathDeactivated. Publishes ProcessPathDeactivated the first time a path transitions to Deactivated. This service takes no position on work already assigned to this path in a downstream context — that is each consumer's own operational concern."
+sidebar_label: "Deactivate (retire) a process path"
+hide_title: true
+hide_table_of_contents: true
+api: eJztVs1u20YQfpXBXmKjlOQWARrwFiQuKuRPSJVDkfowWg7JjZe7zM5QMiEI6EP0CfskxZC0LP/11lt9kbnzP9/Mt7s3ghWb/KtpU7TEPGtRajZXmYktJRQXw7IwuSkIrbgtCq1QapOZgtgm16qCyc2yoKaNQkFyOKq6UAEGQJ8Ii35256IAjQKOASHEWWyBO6vRAUMBRSSGj5/WkKjtNt5xDasxOQ399s7LHFajnPgZDZCaoHSJBcQ1BDgGloSBnabOIBHuuVzXjoEpbZ0lELwmhhChjaM+xAC7mK5viwJkdlXQSBFETcfKAiAUcRdYEmEDNgahG4G///wLpEbR0gltrQLuGkovGOIuwLHn6FVkKYX5H8FkpsWEDQklxWpvAjZkcqOxloXJjAvTl8lMou+dS1SYXFJHmWFbU4Mm3xvpW7ViSS5U5pAZusGm9Xq2Wr55Zw5Xas1tDEysBj9dvNSf+1Bri+EUy7OYju3YIZ+r55dPWX6MME3Z2CW6cSwMO6eQaO+c1jL0KoiaY9t6Z4eGLNoUN56aH76x+to/LituvpGVR5P5+Zc38POri591QtQBvCVB5xnKmODX9XoFr1dLnmuPk7Zf3Fj76PVh0zJTxtSgmNx0yWml4sQ/oXjIDAtKd+LLuCBUUVJZMSTxpJkLLBjsUz4Pp+h+HaW3GRzjHZ1fHZMzU+1T6eagf5lpSOo4LrcnoWHMpDa5Wdwjg8V+nLODxqC0vR3CLnmTm1qkzRcLHy36OrLkry5eXTxC4b2KoaAt+dg2Cq8OmwtlHMq8S3OYjmHEPmDAilRXEXrk8dOwKjHNbAylq7qEG09wmjhYFPSx6igHiyEGpzm4goI46bOBGxoUW68Sle4GUufpwdIOu8nQMel+J+Lot8oiFr2nNONOB5QKcMP+T+xSYuN8nw1cpjEstrhx3ulkAYLCpAONzNE6FIKmY4E6+sHJwC4DR6izB3yUqPVoiWGnCjvkDDZUxkTgZFwnKrLbGBZ+f/3hPZTOE5ztMFEdO6aZC2XCxdi1B0BzTKJtnJV23mPjz8FHLKgApSJAgU2MApseys6XznsFZ0Y3ZDutKIMd8Uzzn7UeQ3ChGpugR2VMlmbNEdM5LAcW1Ab99unL5zeXEMvh6x6E0wVABXgMVYcVZRBoS0lBmPBRQwx9DATkmV7wQLOq1IOtMVQENWmLWH23WA2sFcMOUwF0Y33Hbku+h61DeIflNcIZEwG2jhfIfbDYurEft8GlTrGrau10H2ydYogdD1OxQXsNLtzeBhNwI4nr5ozD++P8Yq5L4p2lwMOqT5T+YblWElASRCsngud2Y03YmOxkGTlfLCondbeZ29gsrMeucJGKe1ifIDHQShtZGgwn8e4uRThLJC7RuQ74CX8/XMn9HXX//x74j98D08WgThatRxd0aIYZ2E8k/vBFl5l8ei5cZUaJWlX2+w0yfUn+cNDj7x2l3uRfrzKzxeSUCgamLxzr/4XJS/RM/4L72efpfjqH57KcDjH0uhLoO/0ymbmm/u5Jc7g6ZKYmLCgNGYzC19ZSKydmzz4Q9HY5Xm9vL99fri/N4fAPnQPhzg==
+sidebar_class_name: "delete api-method"
+info_path: docs/api-reference/rest/process-path-management-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Deactivate (retire) a process path"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"delete"}
+  path={"/process-paths/{pathId}"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Idempotent: deactivating an already-deactivated path is a no-op success and does NOT republish ProcessPathDeactivated. Publishes ProcessPathDeactivated the first time a path transitions to Deactivated. This service takes no position on work already assigned to this path in a downstream context — that is each consumer's own operational concern.
+
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./deactivate-path.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./deactivate-path.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./deactivate-path.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

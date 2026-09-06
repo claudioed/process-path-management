@@ -1,0 +1,12 @@
+apiVersion: v2
+name: process-path-management
+description: Process Path Management — Generic Subdomain (operator-configurable process-path catalogue, replacing the retired static YAML file)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/claudioed/process-path-management
+keywords:
+  - ddd
+  - hexagonal-architecture
+  - warehouse-management-system
+  - golang
