@@ -1,0 +1,139 @@
+# Default values for process-path-management.
+
+replicaCount: 1
+
+image:
+  repository: process-path-management
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: process-path-management.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Additive, disabled-by-default alternative to the ingress: block above.
+# Mirrors the shape every other chart in this fleet now ships (see
+# fulfillment-execution's charts/fulfillment-execution/templates/httproute.yaml
+# for the reference this was copied from). Routes only to this chart's
+# main REST API Service — the same Service ingress.yaml already targets.
+gatewayApi:
+  enabled: false
+  parentRefs:
+    - name: ""
+      namespace: ""
+      sectionName: "http"
+  hosts:
+    - path: /
+      pathType: PathPrefix
+  stripPath: true
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# deployment.environment.name on every span, metric and log this service
+# exports. Set per-cluster (local / staging / production).
+environment: "local"
+
+# Falls back to in-memory adapters when database.url / database.existingSecret
+# are left empty, same as running the binary locally with no env vars set.
+# This service has no inbound Kafka consumer (see README) — it is the
+# SOURCE of the process-path published language, not a consumer — so
+# there is no consumer-group config to expose here, unlike labor-performance.
+config:
+  httpAddr: ":8080"
+  migrationsPath: "migrations"
+  logLevel: "info"        # debug | info | warn | error
+  corsAllowedOrigins: "http://localhost:5173,http://localhost:5189"
+  # "log" (default) or "kafka" — gates whether ProcessPath* events are
+  # published onto warehouse.process-path-management.events at all.
+  eventPublisher: "log"
+
+database:
+  url: ""
+  existingSecret: ""
+  existingSecretKey: "DATABASE_URL"
+
+# This service PUBLISHES onto warehouse.process-path-management.events when
+# config.eventPublisher is "kafka" (KAFKA_BROKERS is only set in the
+# container env in that case). fulfillment-execution, wes-work-planning,
+# and workforce-management are the intended consumers of that topic, but
+# none of them has wired a consumer yet as of this chart's authoring — see
+# docs/docs/ecosystem/context-map.md.
+kafka:
+  enabled: false
+  brokers: "kafka:9092"
+
+# OpenTelemetry traces + metrics, pushed over OTLP/gRPC to a Collector. The
+# endpoint below is the in-cluster Collector Service in the warehouse-infra
+# kind cluster. Export is non-blocking, so a Collector that is down costs
+# telemetry and nothing else — but otel.enabled=false skips the env entirely.
+otel:
+  enabled: true
+  endpoint: "otel-collector.observability.svc.cluster.local:4317"
+  serviceName: "process-path-management"
+
+extraEnv: []
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 3
+  periodSeconds: 5
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,1 @@
+{"parameters":[{"name":"all","in":"query","required":false,"schema":{"type":"boolean","default":false},"description":"When true, includes Deactivated paths too."}]}

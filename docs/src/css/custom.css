@@ -1,0 +1,52 @@
+/**
+ * Process Path Management documentation theme.
+ * Amber/orange primary — distinguishing this Generic Subdomain's docs site
+ * visually from the Core/Supporting sites (labor-performance's teal,
+ * fulfillment-execution's blue) while sharing the same visual family.
+ */
+
+:root {
+  --ifm-color-primary: #b45309;
+  --ifm-color-primary-dark: #a24908;
+  --ifm-color-primary-darker: #984507;
+  --ifm-color-primary-darkest: #7d3906;
+  --ifm-color-primary-light: #c65d0a;
+  --ifm-color-primary-lighter: #d0630b;
+  --ifm-color-primary-lightest: #ea700c;
+  --ifm-code-font-size: 92%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.08);
+  --ifm-heading-font-weight: 650;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #fb923c;
+  --ifm-color-primary-dark: #fa8523;
+  --ifm-color-primary-darker: #fa7d15;
+  --ifm-color-primary-darkest: #d5650b;
+  --ifm-color-primary-light: #fc9f55;
+  --ifm-color-primary-lighter: #fca768;
+  --ifm-color-primary-lightest: #fdc494;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+.navbar__logo {
+  color: var(--ifm-color-primary);
+}
+
+/* Tables carry a lot of this site's content — make them breathe. */
+.markdown table {
+  display: table;
+  width: 100%;
+}
+
+.markdown table th,
+.markdown table td {
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+/* Mermaid diagrams sit better centred with a little air around them. */
+.docusaurus-mermaid-container {
+  margin: 1.75rem 0;
+  text-align: center;
+}

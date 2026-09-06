@@ -1,0 +1,56 @@
+---
+id: process-path-management-api
+title: "Process Path Management API"
+description: "Operator-configurable process-path catalogue: canonical identity, the matchPrefix rule downstream consumers use to resolve a caller-supplied id to a path family, and the capabilities a station/associate must hold to work that path. This service replaces what was, before it existed, a static YAML file (warehouse-infra/config/process-paths/sortable-fc.yaml) loaded once at boot by fulfillment-execution, wes-work-planning, and workforce-management. It is the SOURCE of the process-path published language, never a consumer of anyone else's — every change here is propagated onward exclusively via Kafka (see apis/asyncapi.yaml), never through a synchronous callback into this service."
+sidebar_label: Introduction
+sidebar_position: 0
+hide_title: true
+custom_edit_url: null
+---
+
+import ApiLogo from "@theme/ApiLogo";
+import Heading from "@theme/Heading";
+import SchemaTabs from "@theme/SchemaTabs";
+import TabItem from "@theme/TabItem";
+import Export from "@theme/ApiExplorer/Export";
+
+<span
+  className={"theme-doc-version-badge badge badge--secondary"}
+  children={"Version: 1.0.0"}
+>
+</span>
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Process Path Management API"}
+>
+</Heading>
+
+
+
+Operator-configurable process-path catalogue: canonical identity, the matchPrefix rule downstream consumers use to resolve a caller-supplied id to a path family, and the capabilities a station/associate must hold to work that path. This service replaces what was, before it existed, a static YAML file (warehouse-infra/config/process-paths/sortable-fc.yaml) loaded once at boot by fulfillment-execution, wes-work-planning, and workforce-management. It is the SOURCE of the process-path published language, never a consumer of anyone else's — every change here is propagated onward exclusively via Kafka (see apis/asyncapi.yaml), never through a synchronous callback into this service.
+
+
+<div
+  style={{"display":"flex","flexDirection":"column","marginBottom":"var(--ifm-paragraph-margin-bottom)"}}
+>
+  <h3
+    style={{"marginBottom":"0.25rem"}}
+  >
+    Contact
+  </h3><span>
+    Process Path Management Team: 
+  </span><span>
+    URL: [https://github.com/claudioed/process-path-management](https://github.com/claudioed/process-path-management)
+  </span>
+</div><div
+  style={{"marginBottom":"var(--ifm-paragraph-margin-bottom)"}}
+>
+  <h3
+    style={{"marginBottom":"0.25rem"}}
+  >
+    License
+  </h3>
+</div>
+      

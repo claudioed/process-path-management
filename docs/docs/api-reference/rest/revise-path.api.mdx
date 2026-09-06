@@ -1,0 +1,71 @@
+---
+id: revise-path
+title: "Revise an Active process path's matchPrefix/requiredCapabilities"
+description: "pathId and direct are not revisable (direct describes a structural routing fact, not an operator-tunable parameter). Returns 422 if the path is Deactivated — a deactivated path is a closed historical record. A no-op revision (identical matchPrefix and requiredCapabilities) is a successful 200 that does NOT republish ProcessPathUpdated."
+sidebar_label: "Revise an Active process path's matchPrefix/requiredCapabilities"
+hide_title: true
+hide_table_of_contents: true
+api: eJztV9tuJDUQ/ZWSXzYRPReilVj1W0iCiHaXjcIsElryUOOunvbGbTe+zGQYjcRH8IV8CSq7J+nJJAGE4Im8JGm7yuU6VXWONyLgwovyk+icleT9qMPQeHFTCNuRw6CsuaxEKRwtlacrDI0oREVeOtXxoigFW1xWgKaCSjmSAdARGBsgGeFcExz1K9lyTh4QfHBRhuhQg7MxKLOAGmUokikayAFYNwrRJCcdOmwpkDsewzWF6IyH1ycnoGoIDS+HBpSHc0IZ1BIDVfD7r78BQjX4stuFILX1VEGjfLBOSQ6DpHXVGE7B2JHtcvzKGjhSFZmQ9rQYZHPlqFZ36cqOfo7KUXWGHc6VVkGRP84H+Cg5pXXUcDKdQmgwQGXJw3cfZuCoi3OtfANXOfOc249dxUGOfzKiEPfXZXw2wmBL99kWhVC73ItC7IIQZXCRCuFlQy2KciPCumMrH5wyC7EtBN1h22n+dnV59lZsb7I1+fC1rdZs8tiZtCaQCbyEXaeVTFUx+ewZ/c3hWXb+mWTYi+qTGKRtsDJMGtdc5xj09F+52bM5uMrwJp2St6NfrKER8hWf9P7gAJ3DtShEq8xloNaL8stCqPzXSwn7lM4RhWjwlxaDuNluCxFUSCFc3/fHdc6m2G63KRbfWeNzACfTKf/abx+2yZVGFRxZB9HIBs2CqmJX2T1AsEIuq1Sbx+IfALOf5r6iXsxwrpXi70HCBrnvB3vn1mpC8zdw+uvQ3GwL4QOG+MT2QpCJLW89PZtd/nAhCnF+kf48nV2cJ1PpiLvvNDxlXVvHoJeCO3QUVEscQcwN+9dNBiUz6Pu+WF5PXx/Wx3cW+tmcZxfdKR88rFRoIDTKg6qer4XO2bmm9os/r4n9Q6+/OYOv3ky/4uHEDuCcAirtobYOvp3NruD06tKPD2ope30hFdEp8ZCDJzA9wE+ZQAtyqZhSEE+aKeMDGvmUz+3+JEqruwjuz7t3frMHEN+9v/oOo5OTQ4xmA/oZkE0B1g0JY/JUxbONMkvU/+P43+HIo4xCY1nadDHNRG7DUkz2dNBkk4fjlg8gt9xxcXRalKIJoSsnE20l6sb6UL6ZvpkeQPCOl6GiJWnbtYwtcy4Def3Auxe7SfaI9fao7bmJeUhMnMfaphzuDxtIbPMeDS6IY2H4DyL+sBNe0ppaLaLL6muQGJAYUNtFpBIkGmuSNMoiKayLRFpDoeSiJqjsyvjgCFuQ1vjYkvMQPUGw4MhbvSRWZag1uZGPXP1Ugap4HXN71dgqvS6S8OIz5LCPWFHmbkHvrVQYCNroAzRWJycr626zCmNnY5jx9GRYlWSO7TRK8rDiDSv0Bcypto5AhTxzuZ/7MyT8ePr+HdSKpe0KHTU2ehopUzuc5Kw9KiRvXeA0jmo5XmOrj0FbrKgCayQBBphbG2C+hjrqWmnN4IzojmTkGxWwIj/i+EedRmOUWeQk8KfaOkmj9h7TMVwGHiqcoO8/fLw+uwDbK+QhhL38pAo0mkXEBRVgaEmOQejxYUM0a2sISHt65ZOg5k1ryCIFGuIUefbd4SJJbGtW6CqgO6mjV0vSa1gqhLdY3yIceSLATvkJ+rWR2Kmcj93hoXE2LhrO9NrIxlljo09VMUd5C8oEm2mvBy5rZe7MXLxfjqdjbkKtJBmfOqpXzu8vZzxheMJiliT9wnO9MSNsRTFodl9OJgsVmjgfS9tOpMZYKUvVHtYDJNLM6qwPLZrBeVkr8hPnlJmC9vj9lf9TxnjcsJsH1vj/MfYvPcZ6Lgp0FyadRpUEbKqMTU8dj5/QhSh7ZX1TCKYH3rLZzNHTR6e3W/78cyS3FuWnm0Is0SlObOKXKiNVibJG7ekFvI+u+ysfw3NR7uS0YTG9RB35P1GIW1o/vCe3TBoNYUUuRZAXz/I5o1nm2p3xwWtjW+wsTqWkLry492bAvVcfZ6IQ8/7l2dqKTRyumOtwleO06dpJSqRvG7EbWKIU2SX//AEIzeJY
+sidebar_class_name: "put api-method"
+info_path: docs/api-reference/rest/process-path-management-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Revise an Active process path's matchPrefix/requiredCapabilities"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"put"}
+  path={"/process-paths/{pathId}"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+pathId and direct are not revisable (direct describes a structural routing fact, not an operator-tunable parameter). Returns 422 if the path is Deactivated — a deactivated path is a closed historical record. A no-op revision (identical matchPrefix and requiredCapabilities) is a successful 200 that does NOT republish ProcessPathUpdated.
+
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./revise-path.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./revise-path.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./revise-path.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

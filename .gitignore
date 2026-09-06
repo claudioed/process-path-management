@@ -1,0 +1,4 @@
+/pathmgmt
+*.out
+.env
+coverage.out
