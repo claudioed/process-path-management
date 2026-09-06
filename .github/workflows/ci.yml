@@ -130,7 +130,7 @@ jobs:
           go-version-file: go.mod
       - name: Integration tests
         env:
-          DATABASE_URL: "postgres://pathmgmt:***@localhost:5432/pathmgmt?sslmode=disable"
+          DATABASE_URL: "postgres://pathmgmt:pathmgmt@localhost:5432/pathmgmt?sslmode=disable"
         run: go test -tags=integration ./... -race -count=1
 
   # Fast, BLOCKING mutation subset: runs on every push/PR so a drop in test
