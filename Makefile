@@ -83,6 +83,8 @@ arch-test:
 # Requires a running Postgres: docker compose up -d postgres, and
 # DATABASE_URL pointed at it.
 integration:
+	$(GO) build -tags=integration ./...
+	$(GO) vet -tags=integration ./...
 	$(GO) test -tags=integration ./... -race -count=1
 
 mutation:
