@@ -59,6 +59,7 @@ Typos, broken links and formatting are of course fair game.
 | # | Title | Status |
 | --- | --- | --- |
 | [0001](./0001-process-path-management-bounded-context.md) | Process Path Management as a new Generic Subdomain bounded context | Accepted |
+| [0002](./0002-yaml-to-kafka-cutover.md) | Cutting the fleet over from the static YAML catalogue to this service's events | Accepted |
 
 Each of these reconstructs a decision that is actually visible in this
 repository's history or code — none is a generic placeholder.

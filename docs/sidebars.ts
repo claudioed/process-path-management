@@ -27,6 +27,7 @@ const sidebars: SidebarsConfig = {
       link: {type: 'doc', id: 'adr/about'},
       items: [
         'adr/0001-process-path-management-bounded-context',
+        'adr/0002-yaml-to-kafka-cutover',
       ],
     },
   ],
