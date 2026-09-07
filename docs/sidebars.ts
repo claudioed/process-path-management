@@ -28,6 +28,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'adr/0001-process-path-management-bounded-context',
         'adr/0002-yaml-to-kafka-cutover',
+        'adr/0003-transactional-outbox',
       ],
     },
   ],

@@ -16,6 +16,9 @@ type DeactivatePath struct {
 	Repo      ports.ProcessPathRepo
 	Publisher ports.EventPublisher
 	Clock     ports.Clock
+	// UnitOfWork brackets Save + Publish atomically (ADR 0003); nil means
+	// no transactional backing (see DefinePath).
+	UnitOfWork ports.UnitOfWork
 }
 
 func (uc *DeactivatePath) Execute(ctx context.Context, id shared.PathId) error {
@@ -32,11 +35,13 @@ func (uc *DeactivatePath) Execute(ctx context.Context, id shared.PathId) error {
 
 	now := uc.Clock.Now()
 	p.Deactivate(now)
-	if err := uc.Repo.Save(ctx, p); err != nil {
-		return err
-	}
-	return uc.Publisher.Publish(ctx, shared.ProcessPathDeactivated{
-		PathId: p.ID(),
-		At:     now,
+	return atomically(ctx, uc.UnitOfWork, func(ctx context.Context) error {
+		if err := uc.Repo.Save(ctx, p); err != nil {
+			return err
+		}
+		return uc.Publisher.Publish(ctx, shared.ProcessPathDeactivated{
+			PathId: p.ID(),
+			At:     now,
+		})
 	})
 }

@@ -27,7 +27,7 @@ func NewProcessPathRepo(pool *pgxpool.Pool) *ProcessPathRepo {
 }
 
 func (r *ProcessPathRepo) Save(ctx context.Context, p *processpath.ProcessPath) error {
-	_, err := r.pool.Exec(ctx, `
+	_, err := querierFrom(ctx, r.pool).Exec(ctx, `
 		INSERT INTO process_paths (id, match_prefix, direct, required_capabilities, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (id) DO UPDATE
@@ -40,7 +40,7 @@ func (r *ProcessPathRepo) Save(ctx context.Context, p *processpath.ProcessPath) 
 }
 
 func (r *ProcessPathRepo) FindByID(ctx context.Context, id shared.PathId) (*processpath.ProcessPath, error) {
-	row := r.pool.QueryRow(ctx, `
+	row := querierFrom(ctx, r.pool).QueryRow(ctx, `
 		SELECT id, match_prefix, direct, required_capabilities, status, created_at, updated_at
 		FROM process_paths
 		WHERE id = $1
@@ -66,7 +66,7 @@ func (r *ProcessPathRepo) ListAll(ctx context.Context) ([]*processpath.ProcessPa
 }
 
 func (r *ProcessPathRepo) list(ctx context.Context, query string) ([]*processpath.ProcessPath, error) {
-	rows, err := r.pool.Query(ctx, query)
+	rows, err := querierFrom(ctx, r.pool).Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}

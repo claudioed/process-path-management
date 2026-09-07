@@ -17,6 +17,9 @@ type RevisePath struct {
 	Repo      ports.ProcessPathRepo
 	Publisher ports.EventPublisher
 	Clock     ports.Clock
+	// UnitOfWork brackets Save + Publish atomically (ADR 0003); nil means
+	// no transactional backing (see DefinePath).
+	UnitOfWork ports.UnitOfWork
 }
 
 func (uc *RevisePath) Execute(ctx context.Context, id shared.PathId, matchPrefix string, requiredCapabilities []shared.Capability) (*processpath.ProcessPath, error) {
@@ -36,16 +39,19 @@ func (uc *RevisePath) Execute(ctx context.Context, id shared.PathId, matchPrefix
 	if !changed {
 		return p, nil
 	}
-	if err := uc.Repo.Save(ctx, p); err != nil {
-		return nil, err
-	}
-	if err := uc.Publisher.Publish(ctx, shared.ProcessPathUpdated{
-		PathId:               p.ID(),
-		MatchPrefix:          p.MatchPrefix(),
-		Direct:               p.Direct(),
-		RequiredCapabilities: p.RequiredCapabilities(),
-		At:                   now,
-	}); err != nil {
+	err = atomically(ctx, uc.UnitOfWork, func(ctx context.Context) error {
+		if err := uc.Repo.Save(ctx, p); err != nil {
+			return err
+		}
+		return uc.Publisher.Publish(ctx, shared.ProcessPathUpdated{
+			PathId:               p.ID(),
+			MatchPrefix:          p.MatchPrefix(),
+			Direct:               p.Direct(),
+			RequiredCapabilities: p.RequiredCapabilities(),
+			At:                   now,
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 	return p, nil
