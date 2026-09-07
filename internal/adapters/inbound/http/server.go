@@ -14,6 +14,7 @@ import (
 	"github.com/riandyrn/otelchi"
 	otelchimetric "github.com/riandyrn/otelchi/metric"
 
+	"github.com/claudioed/process-path-management/internal/adapters/inbound/auth"
 	"github.com/claudioed/process-path-management/internal/application/usecases"
 	"github.com/claudioed/process-path-management/internal/domain/processpath"
 	"github.com/claudioed/process-path-management/internal/domain/shared"
@@ -31,6 +32,14 @@ type Server struct {
 	DeactivatePath *usecases.DeactivatePath
 	GetPath        *usecases.GetPath
 	ListPaths      *usecases.ListPaths
+
+	// Auth is the fleet-standard REST identity middleware (ADR 0004,
+	// adopting warehouse-ops-agent ADR 0005). nil means no middleware is
+	// mounted at all — the posture every handler test relies on. The
+	// composition root always supplies one; with AUTH_MODE=off its
+	// Handler is a no-op. An empty ProblemBase / nil Logger are filled
+	// in by NewRouter with this service's problem-type base and logger.
+	Auth *auth.Middleware
 }
 
 // NewRouter builds the chi router for this service's REST API. A nil
@@ -60,14 +69,40 @@ func NewRouter(s *Server, logger *slog.Logger, serviceName string) http.Handler 
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware())
 
+	// /healthz stays outside the auth group so liveness/readiness probes
+	// never need a credential.
 	r.Get("/healthz", s.handleHealthz)
-	r.Post("/process-paths", s.handleDefinePath)
-	r.Get("/process-paths", s.handleListPaths)
-	r.Get("/process-paths/{pathId}", s.handleGetPath)
-	r.Put("/process-paths/{pathId}", s.handleRevisePath)
-	r.Delete("/process-paths/{pathId}", s.handleDeactivatePath)
+
+	r.Group(func(r chi.Router) {
+		if mw, ok := s.authMiddleware(logger); ok {
+			r.Use(mw.Handler)
+		}
+		r.Post("/process-paths", s.handleDefinePath)
+		r.Get("/process-paths", s.handleListPaths)
+		r.Get("/process-paths/{pathId}", s.handleGetPath)
+		r.Put("/process-paths/{pathId}", s.handleRevisePath)
+		r.Delete("/process-paths/{pathId}", s.handleDeactivatePath)
+	})
 
 	return r
+}
+
+// authMiddleware resolves the auth middleware to mount on the API group:
+// a copy of s.Auth with this service's RFC 7807 problem-type base and the
+// router's logger filled in where the caller left them empty. ok=false
+// when no middleware was configured.
+func (s *Server) authMiddleware(logger *slog.Logger) (auth.Middleware, bool) {
+	if s.Auth == nil {
+		return auth.Middleware{}, false
+	}
+	mw := *s.Auth
+	if mw.ProblemBase == "" {
+		mw.ProblemBase = problemBaseURI
+	}
+	if mw.Logger == nil {
+		mw.Logger = logger
+	}
+	return mw, true
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
