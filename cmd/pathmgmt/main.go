@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	inboundhttp "github.com/claudioed/process-path-management/internal/adapters/inbound/http"
 	"github.com/claudioed/process-path-management/internal/adapters/outbound/events"
@@ -73,13 +74,14 @@ func run() error {
 	databaseURL := os.Getenv("DATABASE_URL")
 	migrationsPath := getenv("MIGRATIONS_PATH", "migrations")
 
-	repo, closeRepo, err := buildRepo(ctx, databaseURL, migrationsPath, logger)
+	persistence, err := buildPersistence(ctx, databaseURL, migrationsPath, logger)
 	if err != nil {
 		return err
 	}
-	defer closeRepo()
+	defer persistence.close()
+	repo := persistence.repo
 
-	publisher, closePublisher := buildEventPublisher(logger)
+	publisher, relay, closePublisher := buildEventPublisher(persistence, logger)
 	defer closePublisher()
 	clock := memory.SystemClock{}
 
@@ -89,9 +91,9 @@ func run() error {
 	}
 
 	server := &inboundhttp.Server{
-		DefinePath:     &usecases.DefinePath{Repo: repo, Publisher: publisher, Clock: clock, Metrics: pathMetrics},
-		RevisePath:     &usecases.RevisePath{Repo: repo, Publisher: publisher, Clock: clock},
-		DeactivatePath: &usecases.DeactivatePath{Repo: repo, Publisher: publisher, Clock: clock},
+		DefinePath:     &usecases.DefinePath{Repo: repo, Publisher: publisher, Clock: clock, UnitOfWork: persistence.uow, Metrics: pathMetrics},
+		RevisePath:     &usecases.RevisePath{Repo: repo, Publisher: publisher, Clock: clock, UnitOfWork: persistence.uow},
+		DeactivatePath: &usecases.DeactivatePath{Repo: repo, Publisher: publisher, Clock: clock, UnitOfWork: persistence.uow},
 		GetPath:        &usecases.GetPath{Repo: repo},
 		ListPaths:      &usecases.ListPaths{Repo: repo},
 	}
@@ -113,6 +115,24 @@ func run() error {
 	stopCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// The outbox relay (ADR 0003) runs alongside the HTTP server in the
+	// same process, draining outbox_events onto Kafka. It is only wired
+	// when both Postgres and the kafka publisher are configured.
+	relayDone := make(chan struct{})
+	relayCtx, stopRelay := context.WithCancel(stopCtx)
+	defer stopRelay()
+	if relay != nil {
+		go func() {
+			defer close(relayDone)
+			logger.Info("outbox relay running", "topic", outboundkafka.Topic)
+			if err := relay.Run(relayCtx); err != nil && !errors.Is(err, context.Canceled) {
+				errCh <- err
+			}
+		}()
+	} else {
+		close(relayDone)
+	}
+
 	select {
 	case err := <-errCh:
 		return err
@@ -121,7 +141,17 @@ func run() error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return httpServer.Shutdown(shutdownCtx)
+	err = httpServer.Shutdown(shutdownCtx)
+	// Let the relay finish its in-flight pass so an event committed by a
+	// request that completed just before shutdown is not stranded until
+	// the next pod boots.
+	stopRelay()
+	select {
+	case <-relayDone:
+	case <-shutdownCtx.Done():
+		logger.Warn("outbox relay did not stop before the shutdown deadline")
+	}
+	return err
 }
 
 // newLogger builds the process-wide structured logger, wrapped so any
@@ -152,47 +182,94 @@ func serviceVersion() string {
 	return getenv("SERVICE_VERSION", "dev")
 }
 
-// buildRepo wires the outbound ProcessPathRepo. With no DATABASE_URL set,
-// the service runs fully functional against an in-memory repo (no
-// Postgres required for local dev / smoke tests) — same fallback
-// convention as every other service in this fleet.
-func buildRepo(ctx context.Context, databaseURL, migrationsPath string, logger *slog.Logger) (ports.ProcessPathRepo, func(), error) {
+// persistence is what buildPersistence wires: the repo the use cases
+// read/write through, the Postgres pool (nil when running in-memory),
+// and the UnitOfWork that brackets Save + Publish (nil when in-memory,
+// which the use cases treat as "run them back to back").
+type persistence struct {
+	repo  ports.ProcessPathRepo
+	pool  *pgxpool.Pool
+	uow   ports.UnitOfWork
+	close func()
+}
+
+// buildPersistence wires the outbound ProcessPathRepo. With no
+// DATABASE_URL set, the service runs fully functional against an
+// in-memory repo (no Postgres required for local dev / smoke tests) —
+// same fallback convention as every other service in this fleet.
+func buildPersistence(ctx context.Context, databaseURL, migrationsPath string, logger *slog.Logger) (*persistence, error) {
 	if databaseURL == "" {
 		logger.Info("DATABASE_URL not set, using in-memory ProcessPathRepo")
-		return memory.NewProcessPathRepo(), func() {}, nil
+		return &persistence{repo: memory.NewProcessPathRepo(), close: func() {}}, nil
 	}
 
 	if err := postgres.RunMigrations(databaseURL, migrationsPath); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	pool, err := postgres.NewPool(ctx, databaseURL)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return postgres.NewProcessPathRepo(pool), pool.Close, nil
+	return &persistence{
+		repo:  postgres.NewProcessPathRepo(pool),
+		pool:  pool,
+		uow:   postgres.NewUnitOfWork(pool),
+		close: pool.Close,
+	}, nil
 }
 
-// buildEventPublisher wires the outbound event publisher, returning it
-// and a close function.
+// buildEventPublisher wires the outbound event publisher, returning it,
+// the outbox relay to run alongside the HTTP server (nil when there is
+// none), and a close function.
 //
 // The default is the log publisher, so a local dev run with no Kafka is
 // still fully functional. Setting EVENT_PUBLISHER=kafka publishes onto
 // warehouse.process-path-management.events, which is what
 // fulfillment-execution, wes-work-planning, and workforce-management
 // consume to keep their own local path caches current.
-func buildEventPublisher(logger *slog.Logger) (ports.EventPublisher, func()) {
+//
+// With BOTH Postgres and kafka configured the use cases publish into the
+// transactional outbox (ADR 0003) and the relay forwards rows to Kafka;
+// the store and the topic can no longer diverge. With kafka but no
+// Postgres (in-memory dev runs) events go straight to the broker as
+// before — there is no transaction to bind them to.
+func buildEventPublisher(p *persistence, logger *slog.Logger) (ports.EventPublisher, *postgres.OutboxRelay, func()) {
 	if !strings.EqualFold(getenv("EVENT_PUBLISHER", "log"), "kafka") {
-		return events.NewLogPublisher(logger), func() {}
+		return events.NewLogPublisher(logger), nil, func() {}
 	}
 
 	brokers := strings.Split(getenv("KAFKA_BROKERS", "localhost:9092"), ",")
-	publisher := outboundkafka.NewPublisher(brokers, uuid.NewString)
-	logger.Info("kafka event publishing enabled", "brokers", brokers, "topic", outboundkafka.Topic)
-	return publisher, func() {
-		if err := publisher.Close(); err != nil {
+	kafkaPublisher := outboundkafka.NewPublisher(brokers, uuid.NewString)
+	closeKafka := func() {
+		if err := kafkaPublisher.Close(); err != nil {
 			logger.Error("error closing kafka publisher", "error", err)
 		}
 	}
+
+	if p.pool == nil {
+		logger.Info("kafka event publishing enabled (direct, no outbox: DATABASE_URL not set)", "brokers", brokers, "topic", outboundkafka.Topic)
+		return kafkaPublisher, nil, closeKafka
+	}
+
+	relay := postgres.NewOutboxRelay(p.pool, kafkaPublisher, logger,
+		postgres.WithInterval(durationEnv("OUTBOX_RELAY_INTERVAL", time.Second)))
+	logger.Info("kafka event publishing enabled (transactional outbox)", "brokers", brokers, "topic", outboundkafka.Topic)
+	return postgres.NewOutboxPublisher(p.pool, uuid.NewString), relay, closeKafka
+}
+
+// durationEnv parses key as a time.Duration, falling back on absence or a
+// malformed value (logged by the caller's startup line rather than
+// failing the boot: the relay interval is a tuning knob, not a contract).
+func durationEnv(key string, fallback time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
 }
 
 func getenv(key, fallback string) string {

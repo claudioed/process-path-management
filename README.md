@@ -36,12 +36,15 @@ This service is the **SOURCE** of the process-path published language — it
 has **no inbound Kafka consumer** and **no synchronous REST dependency** on
 any other service. It publishes `ProcessPathCreated` / `ProcessPathUpdated`
 / `ProcessPathDeactivated` onto `warehouse.process-path-management.events`
-when `EVENT_PUBLISHER=kafka`. **As of this document, none of
-`fulfillment-execution`, `wes-work-planning`, or `workforce-management` has
-a consumer wired to that topic** — this is a separate, not-yet-done
-follow-up PR in each of those three repos. See
+when `EVENT_PUBLISHER=kafka`. `fulfillment-execution`, `wes-work-planning`
+and `workforce-management` each consume that topic into a local catalogue
+cache (cutover executed 2026-09-06, see ADR 0002). With a database
+configured, events go through a **transactional outbox** — committed in
+the same transaction as the aggregate and relayed to Kafka by an
+in-process relay (ADR 0003) — so the store and the topic can never
+diverge. See
 [docs/docs/ecosystem/context-map.md](docs/docs/ecosystem/context-map.md)
-for the full, honest picture.
+for the full picture.
 
 ## Architecture
 
@@ -61,7 +64,7 @@ internal/
     usecases/                     DefinePath, RevisePath, DeactivatePath, GetPath, ListPaths
   adapters/
     inbound/http/                 chi handlers, DTOs, RFC 7807 error mapping
-    outbound/postgres/            pgxpool repo + golang-migrate runner
+    outbound/postgres/            pgxpool repo, unit of work, outbox publisher + relay, golang-migrate runner
     outbound/memory/              in-memory repo for tests/local
     outbound/events/              log publisher (default)
     outbound/kafka/               Kafka publisher (EVENT_PUBLISHER=kafka)
@@ -125,8 +128,14 @@ By default this service logs its domain events instead of publishing them.
 export EVENT_PUBLISHER=kafka
 export KAFKA_BROKERS=localhost:9092
 go run ./cmd/pathmgmt
-# {"level":"INFO","msg":"kafka event publishing enabled","brokers":["localhost:9092"],"topic":"warehouse.process-path-management.events"}
+# {"level":"INFO","msg":"kafka event publishing enabled (direct, no outbox: DATABASE_URL not set)","brokers":["localhost:9092"],"topic":"warehouse.process-path-management.events"}
 ```
+
+With `DATABASE_URL` also set, the use cases write events into the
+`outbox_events` table inside the same transaction as the `process_paths`
+change, and a relay goroutine drains that table onto the topic
+(`"kafka event publishing enabled (transactional outbox)"` /
+`"outbox relay running"` at startup). This is the mode the cluster runs.
 
 ### 4. With Docker
 
@@ -161,6 +170,7 @@ surface (`kafka.enabled`, `config.eventPublisher`, `otel.enabled`,
 | `MIGRATIONS_PATH` | `migrations` | golang-migrate source directory. |
 | `EVENT_PUBLISHER` | `log` | `log` (default) or `kafka`. Kafka publishing requires this to be set to `kafka`. |
 | `KAFKA_BROKERS` | `localhost:9092` | Comma-separated broker addresses (only read when `EVENT_PUBLISHER=kafka`). |
+| `OUTBOX_RELAY_INTERVAL` | `1s` | How long the outbox relay sleeps between empty passes (only used when both `DATABASE_URL` and `EVENT_PUBLISHER=kafka` are set). |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:5189` | Comma-separated allowed origins. |
 | `OTEL_SERVICE_NAME` | `process-path-management` | OTel `service.name` resource attribute. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | OTLP/gRPC Collector endpoint. |

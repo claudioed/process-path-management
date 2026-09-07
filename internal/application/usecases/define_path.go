@@ -19,6 +19,11 @@ type DefinePath struct {
 	Repo      ports.ProcessPathRepo
 	Publisher ports.EventPublisher
 	Clock     ports.Clock
+	// UnitOfWork brackets Save + Publish atomically (ADR 0003). Optional:
+	// a nil value means "no transactional backing" and the two calls run
+	// back to back, which is exactly the in-memory / log-publisher dev
+	// configuration.
+	UnitOfWork ports.UnitOfWork
 	// Metrics is optional (fleet convention: a nil value means "not
 	// instrumented", see ports.PathMetrics's doc comment).
 	Metrics ports.PathMetrics
@@ -40,16 +45,19 @@ func (uc *DefinePath) Execute(ctx context.Context, id shared.PathId, matchPrefix
 		uc.recordRejected(ctx)
 		return nil, err
 	}
-	if err := uc.Repo.Save(ctx, p); err != nil {
-		return nil, err
-	}
-	if err := uc.Publisher.Publish(ctx, shared.ProcessPathCreated{
-		PathId:               p.ID(),
-		MatchPrefix:          p.MatchPrefix(),
-		Direct:               p.Direct(),
-		RequiredCapabilities: p.RequiredCapabilities(),
-		At:                   now,
-	}); err != nil {
+	err = atomically(ctx, uc.UnitOfWork, func(ctx context.Context) error {
+		if err := uc.Repo.Save(ctx, p); err != nil {
+			return err
+		}
+		return uc.Publisher.Publish(ctx, shared.ProcessPathCreated{
+			PathId:               p.ID(),
+			MatchPrefix:          p.MatchPrefix(),
+			Direct:               p.Direct(),
+			RequiredCapabilities: p.RequiredCapabilities(),
+			At:                   now,
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 	if uc.Metrics != nil {
@@ -62,4 +70,14 @@ func (uc *DefinePath) recordRejected(ctx context.Context) {
 	if uc.Metrics != nil {
 		uc.Metrics.PathDefinitionRejected(ctx)
 	}
+}
+
+// atomically runs fn inside uow when one is wired, or directly otherwise.
+// Keeping this in one place means every use case treats a nil UnitOfWork
+// identically instead of each re-deciding the fallback.
+func atomically(ctx context.Context, uow ports.UnitOfWork, fn func(ctx context.Context) error) error {
+	if uow == nil {
+		return fn(ctx)
+	}
+	return uow.Execute(ctx, fn)
 }

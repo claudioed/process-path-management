@@ -91,11 +91,25 @@ func NewPublisher(brokers []string, newId func() string) *Publisher {
 	}
 }
 
-// Publish forwards event onto Kafka, keyed by PathId so every event for
-// the same path lands on the same partition — a consumer replaying the
-// topic sees a given path's Created/Updated/Deactivated events in
-// publish order, never interleaved with another path's out of order.
-func (p *Publisher) Publish(ctx context.Context, event shared.DomainEvent) error {
+// Encoded is the wire form of one domain event: the partition key (the
+// PathId, so every event for the same path lands on the same partition
+// and a replaying consumer sees a given path's Created/Updated/Deactivated
+// in publish order) and the JSON-marshalled Envelope. It is the unit the
+// transactional outbox (postgres.OutboxPublisher) stores and the outbox
+// relay later hands to Send, so the direct and outbox paths can never
+// disagree about what a message looks like.
+type Encoded struct {
+	EventId   string
+	EventType string
+	Key       string
+	Value     []byte
+}
+
+// Encode translates a domain event into its Kafka wire form. eventId is
+// the envelope's event_id — callers supply it so the outbox can persist
+// the same id it will later publish under, making redelivery detectable
+// by consumers.
+func Encode(event shared.DomainEvent, eventId string) (Encoded, error) {
 	var (
 		pathId string
 		data   ProcessPathData
@@ -129,11 +143,11 @@ func (p *Publisher) Publish(ctx context.Context, event shared.DomainEvent) error
 		// Every event this service's use cases raise today is one of
 		// the three above; a future new event type must be added here
 		// explicitly rather than silently dropped.
-		return fmt.Errorf("kafka: unknown event type %T", event)
+		return Encoded{}, fmt.Errorf("kafka: unknown event type %T", event)
 	}
 
 	env := Envelope{
-		EventId:    p.NewId(),
+		EventId:    eventId,
 		EventType:  typ,
 		OccurredAt: event.OccurredAt(),
 		Source:     Source,
@@ -141,12 +155,29 @@ func (p *Publisher) Publish(ctx context.Context, event shared.DomainEvent) error
 	}
 	payload, err := json.Marshal(env)
 	if err != nil {
-		return fmt.Errorf("kafka: marshal envelope: %w", err)
+		return Encoded{}, fmt.Errorf("kafka: marshal envelope: %w", err)
 	}
+	return Encoded{EventId: eventId, EventType: typ, Key: pathId, Value: payload}, nil
+}
 
-	msg := kafkago.Message{Key: []byte(pathId), Value: payload}
+// Publish forwards event onto Kafka directly (no outbox), keyed by
+// PathId. This is the EVENT_PUBLISHER=kafka path used when the service
+// runs without Postgres; with a database configured the composition root
+// wires the transactional outbox instead and this publisher only serves
+// as the relay's sink via Send (ADR 0003).
+func (p *Publisher) Publish(ctx context.Context, event shared.DomainEvent) error {
+	enc, err := Encode(event, p.NewId())
+	if err != nil {
+		return err
+	}
+	return p.Send(ctx, enc)
+}
+
+// Send writes one already-encoded message to the topic.
+func (p *Publisher) Send(ctx context.Context, enc Encoded) error {
+	msg := kafkago.Message{Key: []byte(enc.Key), Value: enc.Value}
 	if err := p.Writer.WriteMessages(ctx, msg); err != nil {
-		return fmt.Errorf("kafka: publish %s: %w", typ, err)
+		return fmt.Errorf("kafka: publish %s: %w", enc.EventType, err)
 	}
 	return nil
 }
