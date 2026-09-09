@@ -182,7 +182,7 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 		switch {
 		case !ok:
 			if m.Mode == ModeLog {
-				logger.WarnContext(r.Context(), "auth: would-reject", "reason", "unauthenticated", "method", r.Method, "path", r.URL.Path)
+				logger.WarnContext(r.Context(), "auth: would-reject", "reason", "unauthenticated", "method", sanitizeForLog(r.Method), "path", sanitizeForLog(r.URL.Path))
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -191,7 +191,7 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			return
 		case !Allows(granted, need):
 			if m.Mode == ModeLog {
-				logger.WarnContext(r.Context(), "auth: would-reject", "reason", "insufficient-scope", "granted", string(granted), "required", string(need), "method", r.Method, "path", r.URL.Path)
+				logger.WarnContext(r.Context(), "auth: would-reject", "reason", "insufficient-scope", "granted", string(granted), "required", string(need), "method", sanitizeForLog(r.Method), "path", sanitizeForLog(r.URL.Path))
 				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), scopeKey{}, granted)))
 				return
 			}
@@ -200,6 +200,12 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), scopeKey{}, granted)))
 	})
+}
+
+func sanitizeForLog(v string) string {
+	v = strings.ReplaceAll(v, "\n", "")
+	v = strings.ReplaceAll(v, "\r", "")
+	return v
 }
 
 func (m Middleware) problem(w http.ResponseWriter, r *http.Request, status int, slug, detail string) {
