@@ -69,3 +69,15 @@ Name of the Secret holding DATABASE_URL, when the chart creates its own.
 {{- include "process-path-management.fullname" . }}-database
 {{- end }}
 {{- end }}
+
+{{/*
+Name of the Secret holding API_READ_KEY / API_READWRITE_KEY (ADR 0004),
+when the chart creates its own.
+*/}}
+{{- define "process-path-management.authSecretName" -}}
+{{- if .Values.auth.existingSecret }}
+{{- .Values.auth.existingSecret }}
+{{- else }}
+{{- include "process-path-management.fullname" . }}-auth
+{{- end }}
+{{- end }}
