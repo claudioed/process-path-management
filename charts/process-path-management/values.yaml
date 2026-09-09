@@ -99,6 +99,22 @@ database:
   existingSecret: ""
   existingSecretKey: "DATABASE_URL"
 
+# Fleet-standard REST identity (ADR 0004, adopting warehouse-ops-agent
+# ADR 0005): static bearer keys with read / read-write scopes.
+#   mode:          enforce | log | off — rendered as AUTH_MODE. "log" lets every
+#                  request through but logs "auth: would-reject" (rollout gate).
+#                  With no key configured the binary falls back to "off" and WARNs.
+#   readKey:       token granting GET/HEAD/OPTIONS (API_READ_KEY).
+#   readWriteKey:  token granting every method (API_READWRITE_KEY).
+#   existingSecret: name of a pre-existing Secret carrying API_READ_KEY /
+#                  API_READWRITE_KEY instead of the chart rendering one.
+# /healthz is always open.
+auth:
+  mode: "enforce"
+  readKey: ""
+  readWriteKey: ""
+  existingSecret: ""
+
 # This service PUBLISHES onto warehouse.process-path-management.events when
 # config.eventPublisher is "kafka" (KAFKA_BROKERS is only set in the
 # container env in that case). fulfillment-execution, wes-work-planning,
