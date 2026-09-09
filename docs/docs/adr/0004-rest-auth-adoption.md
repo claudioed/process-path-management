@@ -8,6 +8,11 @@ description: ADR 0004 — this context adopts the fleet-wide decision recorded i
 
 # 0004. Adopting the fleet REST identity standard
 
+> **Superseded by [ADR 0005 — Removing the REST auth layer](0005-remove-rest-auth.md)
+> (2026-09-09).** The auth layer this ADR describes has been removed;
+> every REST route is unauthenticated again. Left below for historical
+> record.
+
 ## Status
 
 Accepted — 2026-09-07. Adopts the fleet-wide decision in

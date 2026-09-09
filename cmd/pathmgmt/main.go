@@ -22,7 +22,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/claudioed/process-path-management/internal/adapters/inbound/auth"
 	inboundhttp "github.com/claudioed/process-path-management/internal/adapters/inbound/http"
 	"github.com/claudioed/process-path-management/internal/adapters/outbound/events"
 	outboundkafka "github.com/claudioed/process-path-management/internal/adapters/outbound/kafka"
@@ -97,7 +96,6 @@ func run() error {
 		DeactivatePath: &usecases.DeactivatePath{Repo: repo, Publisher: publisher, Clock: clock, UnitOfWork: persistence.uow},
 		GetPath:        &usecases.GetPath{Repo: repo},
 		ListPaths:      &usecases.ListPaths{Repo: repo},
-		Auth:           buildAuth(os.Getenv, logger),
 	}
 
 	httpServer := &http.Server{
@@ -257,28 +255,6 @@ func buildEventPublisher(p *persistence, logger *slog.Logger) (ports.EventPublis
 		postgres.WithInterval(durationEnv("OUTBOX_RELAY_INTERVAL", time.Second)))
 	logger.Info("kafka event publishing enabled (transactional outbox)", "brokers", brokers, "topic", outboundkafka.Topic)
 	return postgres.NewOutboxPublisher(p.pool, uuid.NewString), relay, closeKafka
-}
-
-// buildAuth wires the fleet-standard REST identity middleware (ADR 0004 /
-// warehouse-ops-agent ADR 0005). Keys come from API_READ_KEY /
-// API_READWRITE_KEY (falling back to MCP_READ_KEY / MCP_READWRITE_KEY).
-// AUTH_MODE overrides the default, which is "enforce" when at least one
-// key is configured and "off" — with a loud WARN — when none is, so a
-// bare local run keeps working exactly as before. Key material is never
-// logged.
-func buildAuth(getenv func(string) string, logger *slog.Logger) *auth.Middleware {
-	keys := auth.KeysFromEnv(getenv)
-	authn := auth.NewStaticKeyAuth(keys)
-	defaultMode := auth.ModeOff
-	if authn.HasKeys() {
-		defaultMode = auth.ModeEnforce
-	}
-	mode := auth.ParseMode(getenv("AUTH_MODE"), defaultMode)
-	if mode == auth.ModeOff {
-		logger.Warn("REST auth is OFF: no API_READ_KEY/API_READWRITE_KEY configured or AUTH_MODE=off")
-	}
-	logger.Info("REST auth configured", "mode", string(mode), "keys", len(keys))
-	return &auth.Middleware{Authn: authn, Mode: mode, Logger: logger}
 }
 
 // durationEnv parses key as a time.Duration, falling back on absence or a
