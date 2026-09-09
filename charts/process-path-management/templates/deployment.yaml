@@ -56,24 +56,6 @@ spec:
               value: {{ .Values.config.corsAllowedOrigins | quote }}
             - name: EVENT_PUBLISHER
               value: {{ .Values.config.eventPublisher | quote }}
-            - name: AUTH_MODE
-              value: {{ .Values.auth.mode | quote }}
-            {{- if or .Values.auth.readKey .Values.auth.existingSecret }}
-            - name: API_READ_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "process-path-management.authSecretName" . }}
-                  key: API_READ_KEY
-                  optional: true
-            {{- end }}
-            {{- if or .Values.auth.readWriteKey .Values.auth.existingSecret }}
-            - name: API_READWRITE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "process-path-management.authSecretName" . }}
-                  key: API_READWRITE_KEY
-                  optional: true
-            {{- end }}
             {{- if .Values.otel.enabled }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.otel.endpoint | quote }}

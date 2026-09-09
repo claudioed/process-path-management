@@ -175,9 +175,6 @@ surface (`kafka.enabled`, `config.eventPublisher`, `otel.enabled`,
 | `OTEL_SERVICE_NAME` | `process-path-management` | OTel `service.name` resource attribute. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | OTLP/gRPC Collector endpoint. |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error`. |
-| `AUTH_MODE` | `enforce` if any key is set, else `off` | REST auth posture (ADR 0004): `enforce` rejects unauthenticated/under-scoped requests (401/403 problem+json), `log` lets everything through but logs `auth: would-reject`, `off` mounts nothing. With no key configured the binary falls back to `off` and logs a WARN. |
-| `API_READ_KEY` | *(unset)* | Static bearer key granting the `read` scope (`GET`/`HEAD`/`OPTIONS`). Falls back to `MCP_READ_KEY`. |
-| `API_READWRITE_KEY` | *(unset)* | Static bearer key granting the `read-write` scope (every method). Falls back to `MCP_READWRITE_KEY`. |
 
 ## API
 
@@ -196,12 +193,9 @@ Six endpoints. The full contract, including the RFC 7807 error schema, is in
 Every error response is `application/problem+json` (RFC 7807), the same
 shape every other service in this fleet emits.
 
-Every route except `/healthz` sits behind the fleet-standard bearer-key
-middleware (ADR 0004): send `Authorization: Bearer <key>`. `GET` needs the
-read key, `POST`/`PUT`/`DELETE` need the read-write key. A missing or
-invalid credential is a 401 (with `WWW-Authenticate`), an under-scoped one
-a 403 — both RFC 7807. Running locally with no `API_*_KEY` set leaves the
-API open (`AUTH_MODE=off`) so the curl walkthrough below works unchanged.
+Every route, including `/process-paths*`, is unauthenticated — there is no
+REST auth layer in front of this API (see ADR 0005, which supersedes ADR
+0004's earlier bearer-key adoption).
 
 ### Curl walkthrough
 
@@ -335,7 +329,8 @@ have all migrated to. `helm lint` and two real `helm template` renders
 1. [0001 — Process Path Management as a new Generic Subdomain bounded context](docs/docs/adr/0001-process-path-management-bounded-context.md)
 2. [0002 — Cutting the fleet over from the static YAML catalogue to this service's events](docs/docs/adr/0002-yaml-to-kafka-cutover.md)
 3. [0003 — Transactional outbox for the process-path Published Language](docs/docs/adr/0003-transactional-outbox.md)
-4. [0004 — Adopting the fleet REST identity standard (static bearer keys, read/read-write scopes)](docs/docs/adr/0004-rest-auth-adoption.md)
+4. [0004 — Adopting the fleet REST identity standard (static bearer keys, read/read-write scopes)](docs/docs/adr/0004-rest-auth-adoption.md) (superseded by 0005)
+5. [0005 — Removing the REST auth layer](docs/docs/adr/0005-remove-rest-auth.md)
 
 ## License
 

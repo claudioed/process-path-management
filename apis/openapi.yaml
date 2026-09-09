@@ -21,13 +21,6 @@ info:
 servers:
   - url: http://localhost:8080
     description: Local development
-# Fleet-standard REST identity (ADR 0004, adopting warehouse-ops-agent
-# ADR 0005): every operation requires a static bearer key. GET/HEAD/OPTIONS
-# need the read scope; POST/PUT/DELETE need read-write. Missing or invalid
-# credential -> 401 problem+json with WWW-Authenticate; insufficient scope
-# -> 403. /healthz opts out below with `security: []`.
-security:
-  - bearerAuth: []
 tags:
   - name: process-paths
     description: Define, revise, retrieve, list, and deactivate process paths
@@ -40,7 +33,6 @@ paths:
       operationId: getHealthz
       summary: Liveness probe
       description: Reports whether the service process is up and able to serve requests.
-      security: []
       responses:
         "200":
           description: Service is up
@@ -195,17 +187,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
 components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      description: >
-        Static API key carried as `Authorization: Bearer <key>`. Two keys
-        exist per deployment: API_READ_KEY (read scope — GET/HEAD/OPTIONS)
-        and API_READWRITE_KEY (read-write scope — every method). Failures
-        are RFC 7807 problem details: 401 `unauthenticated` (with
-        `WWW-Authenticate`), 403 `insufficient-scope`. Behaviour is
-        governed by the service's AUTH_MODE (enforce | log | off).
   parameters:
     PathIdPathParam:
       name: pathId
