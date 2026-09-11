@@ -16,7 +16,8 @@ COPY . .
 # builds in CI without baking the cache into the image layers.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/pathmgmt ./cmd/pathmgmt
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/pathmgmt ./cmd/pathmgmt && \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/mcp ./cmd/mcp
 
 # --- runtime stage ---
 FROM alpine:3.24
@@ -25,6 +26,7 @@ RUN apk upgrade --no-cache && \
     addgroup -g 1000 -S app && adduser -u 1000 -S app -G app
 WORKDIR /app
 COPY --from=build --chown=app:app /out/pathmgmt ./pathmgmt
+COPY --from=build --chown=app:app /out/mcp ./mcp
 COPY --from=build --chown=app:app /src/migrations ./migrations
 USER 1000
 EXPOSE 8080
