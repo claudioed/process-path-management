@@ -81,6 +81,13 @@ func run() error {
 		GetPath:   &usecases.GetPath{Repo: repo},
 		ListPaths: &usecases.ListPaths{Repo: repo},
 	}
+	// When REPORTS_BASE_URL is set, the curated catalogue-growth report
+	// tool is additionally registered, calling the pathmgmt-reports REST
+	// service. Left unset, the MCP server serves only the two existing
+	// read-only tools, unchanged.
+	if reportsURL := os.Getenv("REPORTS_BASE_URL"); reportsURL != "" {
+		deps.Reports = inboundmcp.NewReportsRESTClient(reportsURL, nil)
+	}
 	server := inboundmcp.NewServer(deps)
 
 	handler := newRouter(inboundmcp.Handler(server))

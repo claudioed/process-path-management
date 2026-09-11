@@ -28,6 +28,10 @@ type Deps struct {
 	// answers "what process paths currently exist" (active-only by
 	// default, or every path including deactivated ones).
 	ListPaths ListPathsQuery
+	// Reports is the pathmgmt-reports REST client the catalogue-growth
+	// report tool calls. Nil disables that tool (e.g. a deployment with
+	// analytics not yet enabled) without disabling the other two tools.
+	Reports ReportsClient
 }
 
 // --- get_process_path -----------------------------------------------------
@@ -99,6 +103,8 @@ func (d Deps) registerTools(server *mcp.Server) {
 		Description: "List process paths in the catalogue. activeOnly (default true) restricts the result to ACTIVE paths; set it false to include deactivated ones too.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly},
 	}, d.listProcessPaths)
+
+	d.registerReportTool(server)
 }
 
 // addTool registers one tool. It centralises the cross-cutting concerns

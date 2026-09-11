@@ -2,6 +2,13 @@
 // via github.com/arch-go/arch-go) that enforce the hexagonal/ports-and-adapters
 // dependency rule described in this project's README: dependencies point
 // inward only, and inbound/outbound adapters never depend on each other.
+//
+// This service now HAS an analytics data-mesh side —
+// internal/analytics/report, added by ADR 0007 for fleet parity with the
+// sibling services' data products — so the two analytics-specific rules
+// those siblings enforce (analytics-depends-on-nothing-but-itself,
+// OLTP-must-not-import-analytics) are asserted here too, mirroring
+// labor-performance's architecture_test.go.
 package architecture
 
 import (
@@ -84,6 +91,55 @@ func TestHexagonalArchitecture(t *testing.T) {
 		assertPass(t, result)
 	})
 
+	t.Run("the analytics read model depends on nothing but itself", func(t *testing.T) {
+		// internal/analytics/report is the analytical read-model region
+		// added by ADR 0007. Its whole value is being derivable from the
+		// event stream alone: if it could reach into the OLTP domain or
+		// application layers, the report would silently become coupled
+		// to the transactional model it is supposed to be independent
+		// of, and "rebuild the read model by replaying the topic" would
+		// stop being true.
+		rule := &configuration.DependenciesRule{
+			Package: "**.internal.analytics.**",
+			ShouldOnlyDependsOn: &configuration.Dependencies{
+				Internal: []string{"**.internal.analytics.**"},
+			},
+		}
+
+		result := archgo.CheckArchitecture(moduleInfo, configuration.Config{
+			DependenciesRules: []*configuration.DependenciesRule{rule},
+		})
+
+		assertPass(t, result)
+	})
+
+	t.Run("the OLTP domain and application layers do not import analytics", func(t *testing.T) {
+		// The other half of the same isolation: the analytics data
+		// product must remain strictly additive from the OLTP write
+		// path's point of view. The domain rule above already forbids
+		// this transitively, but stating it directly means a future
+		// loosening of that rule cannot quietly let analytics leak
+		// inward.
+		rule := &configuration.DependenciesRule{
+			Package: "**.internal.domain.**",
+			ShouldNotDependsOn: &configuration.Dependencies{
+				Internal: []string{"**.internal.analytics.**"},
+			},
+		}
+		appRule := &configuration.DependenciesRule{
+			Package: "**.internal.application.**",
+			ShouldNotDependsOn: &configuration.Dependencies{
+				Internal: []string{"**.internal.analytics.**"},
+			},
+		}
+
+		result := archgo.CheckArchitecture(moduleInfo, configuration.Config{
+			DependenciesRules: []*configuration.DependenciesRule{rule, appRule},
+		})
+
+		assertPass(t, result)
+	})
+
 	t.Run("only cmd is the composition root wiring every layer", func(t *testing.T) {
 		// Nothing under internal/** may import cmd/**: if it did, cmd would
 		// no longer be a leaf composition root but a dependency of the very
@@ -101,15 +157,6 @@ func TestHexagonalArchitecture(t *testing.T) {
 
 		assertPass(t, result)
 	})
-
-	// DEVIATION FROM labor-performance (documented, not silently dropped):
-	// this service has no analytics data-mesh side (no
-	// internal/analytics/report region), so the two ADR-0007-style
-	// analytics-isolation rules labor-performance's own arch-fitness suite
-	// asserts are omitted here — there is nothing to constrain. If a
-	// future analytics side-projection is added to this service, those
-	// rules should be added back at that time (see labor-performance's
-	// architecture_test.go for the exact shape to mirror).
 }
 
 func assertPass(t *testing.T, result *archgo.Result) {

@@ -331,6 +331,8 @@ have all migrated to. `helm lint` and two real `helm template` renders
 3. [0003 — Transactional outbox for the process-path Published Language](docs/docs/adr/0003-transactional-outbox.md)
 4. [0004 — Adopting the fleet REST identity standard (static bearer keys, read/read-write scopes)](docs/docs/adr/0004-rest-auth-adoption.md) (superseded by 0005)
 5. [0005 — Removing the REST auth layer](docs/docs/adr/0005-remove-rest-auth.md)
+6. [0006 — MCP server as a second inbound adapter](docs/docs/adr/0006-mcp-server-second-inbound-adapter.md)
+7. [0007 — Analytical data product (report) via a separate analytics topic](docs/docs/adr/0007-analytical-data-product.md)
 
 ## License
 
