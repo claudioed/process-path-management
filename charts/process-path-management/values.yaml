@@ -134,6 +134,29 @@ readinessProbe:
   initialDelaySeconds: 3
   periodSeconds: 5
 
+# --- MCP server ---
+# The Model Context Protocol server (cmd/mcp): a second deployable over the
+# same read use cases and OLTP database as the HTTP service, served over
+# Streamable HTTP at "/" and "/mcp" with a GET /healthz for the probes.
+# Disabled by default so existing releases are unaffected; set
+# mcp.enabled=true to deploy it.
+mcp:
+  enabled: false
+  replicaCount: 1
+  httpAddr: ":8090"
+  service:
+    type: ClusterIP
+    port: 8090
+    targetPort: 8090
+  extraEnv: []
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

@@ -69,3 +69,10 @@ Name of the Secret holding DATABASE_URL, when the chart creates its own.
 {{- include "process-path-management.fullname" . }}-database
 {{- end }}
 {{- end }}
+
+{{/*
+Fully qualified name of the MCP server deployment/service.
+*/}}
+{{- define "process-path-management.mcpFullname" -}}
+{{- include "process-path-management.fullname" . }}-mcp
+{{- end }}
