@@ -64,6 +64,13 @@ spec:
                   name: {{ include "process-path-management.databaseSecretName" . }}
                   key: {{ .Values.database.existingSecretKey }}
             {{- end }}
+            {{- if .Values.mcp.reportsBaseUrl }}
+            - name: REPORTS_BASE_URL
+              value: {{ .Values.mcp.reportsBaseUrl | quote }}
+            {{- else if .Values.analytics.enabled }}
+            - name: REPORTS_BASE_URL
+              value: {{ printf "http://%s.%s.svc.cluster.local:%v" (include "process-path-management.reportsFullname" .) .Release.Namespace .Values.analytics.reports.service.port | quote }}
+            {{- end }}
             {{- range .Values.mcp.extraEnv }}
             - {{ toYaml . | nindent 14 | trim }}
             {{- end }}
