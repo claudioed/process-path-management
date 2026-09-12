@@ -8,7 +8,7 @@ GOLANGCI_LINT      ?= golangci-lint
 GOLANGCI_VERSION   := v2.13.1
 
 COVERAGE_OUT       := coverage.out
-COVERAGE_PKGS      := ./internal/domain/...,./internal/application/...
+COVERAGE_PKGS      := ./internal/domain/...,./internal/application/...,./internal/analytics/...
 COVERAGE_THRESHOLD := 90
 
 .DEFAULT_GOAL := help
