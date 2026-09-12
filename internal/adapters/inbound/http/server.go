@@ -61,6 +61,7 @@ func NewRouter(s *Server, logger *slog.Logger, serviceName string) http.Handler 
 	r.Use(corsMiddleware())
 
 	r.Get("/healthz", s.handleHealthz)
+
 	r.Post("/process-paths", s.handleDefinePath)
 	r.Get("/process-paths", s.handleListPaths)
 	r.Get("/process-paths/{pathId}", s.handleGetPath)
