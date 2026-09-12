@@ -10,35 +10,59 @@ import (
 	"github.com/claudioed/process-path-management/internal/domain/shared"
 )
 
-// OutboxPublisher implements ports.EventPublisher by writing the event's
-// Kafka wire form into outbox_events instead of the broker (ADR 0003).
-// When called inside UnitOfWork.Execute the insert joins the use case's
-// transaction, so the aggregate change and its event commit together or
-// not at all. OutboxRelay later drains the table onto Kafka.
+// OutboxPublisher implements ports.EventPublisher by writing each
+// encoder's Kafka wire form of event into outbox_events instead of the
+// broker (ADR 0003, extended by ADR 0007 to fan one event out to several
+// topics). When called inside UnitOfWork.Execute the insert joins the use
+// case's transaction, so the aggregate change and every one of its
+// outbox rows commit together or not at all. OutboxRelay later drains
+// the table onto Kafka.
+//
+// One outbox row is written per (event x encoder), so this service's
+// existing single integration topic and its new analytics topic
+// (warehouse.process-path-management.analytics) can never diverge: both
+// are enqueued in the exact same transaction as the aggregate write.
 type OutboxPublisher struct {
-	pool  *pgxpool.Pool
-	newId func() string
+	pool     *pgxpool.Pool
+	newId    func() string
+	encoders []outboundkafka.Encoder
 }
 
-// NewOutboxPublisher constructs an OutboxPublisher over pool. newId mints
-// the envelope event_id (uuid) persisted with the row and published with
-// the message, so a redelivered event carries the same id both times.
-func NewOutboxPublisher(pool *pgxpool.Pool, newId func() string) *OutboxPublisher {
-	return &OutboxPublisher{pool: pool, newId: newId}
-}
-
-// Publish stores event in the outbox. It never touches Kafka.
-func (p *OutboxPublisher) Publish(ctx context.Context, event shared.DomainEvent) error {
-	enc, err := outboundkafka.Encode(event, p.newId())
-	if err != nil {
-		return err
+// NewOutboxPublisher constructs an OutboxPublisher over pool that fans
+// each event through every encoder given, in order. newId mints the
+// envelope event_id shared by a given event's row across every encoder
+// invocation, so a redelivery carries the same id on every topic it was
+// enqueued for.
+//
+// Passing outboundkafka.IntegrationEncoder{} alone preserves this
+// service's original single-topic behaviour; adding
+// outboundkafka.NewAnalyticsEncoder(newId) alongside it additionally
+// enqueues the same event onto the analytics topic.
+func NewOutboxPublisher(pool *pgxpool.Pool, newId func() string, encoders ...outboundkafka.Encoder) *OutboxPublisher {
+	if len(encoders) == 0 {
+		encoders = []outboundkafka.Encoder{outboundkafka.IntegrationEncoder{}}
 	}
-	_, err = querierFrom(ctx, p.pool).Exec(ctx, `
-		INSERT INTO outbox_events (event_id, event_type, aggregate_id, payload, occurred_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, enc.EventId, enc.EventType, enc.Key, enc.Value, event.OccurredAt())
-	if err != nil {
-		return fmt.Errorf("postgres: enqueue outbox event %s: %w", enc.EventType, err)
+	return &OutboxPublisher{pool: pool, newId: newId, encoders: encoders}
+}
+
+// Publish stores event's encoded message for every configured encoder in
+// the outbox. It never touches Kafka.
+func (p *OutboxPublisher) Publish(ctx context.Context, event shared.DomainEvent) error {
+	eventId := p.newId()
+	q := querierFrom(ctx, p.pool)
+	for _, enc := range p.encoders {
+		encoded, err := enc.Encode(event, eventId)
+		if err != nil {
+			return err
+		}
+		_, err = q.Exec(ctx, `
+			INSERT INTO outbox_events (event_id, event_type, aggregate_id, payload, occurred_at, topic)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (event_id, topic) DO NOTHING
+		`, encoded.EventId, encoded.EventType, encoded.Key, encoded.Value, event.OccurredAt(), encoded.Topic)
+		if err != nil {
+			return fmt.Errorf("postgres: enqueue outbox event %s for %s: %w", encoded.EventType, encoded.Topic, err)
+		}
 	}
 	return nil
 }
