@@ -3,7 +3,7 @@ id: 0004-rest-auth-adoption
 slug: /adr/0004-rest-auth-adoption
 title: 0004. Adopting the fleet REST identity standard (static bearer keys, read/read-write scopes)
 sidebar_label: 0004. REST auth adoption
-description: ADR 0004 — this context adopts the fleet-wide decision recorded in warehouse-ops-agent ADR 0005: every REST route except /healthz requires a static bearer key carrying a read or read-write scope, rolled out through AUTH_MODE=log before enforce.
+description: "ADR 0004 — this context adopts the fleet-wide decision recorded in warehouse-ops-agent ADR 0005: every REST route except /healthz requires a static bearer key carrying a read or read-write scope, rolled out through AUTH_MODE=log before enforce."
 ---
 
 # 0004. Adopting the fleet REST identity standard

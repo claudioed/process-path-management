@@ -33,6 +33,7 @@ const sidebars: SidebarsConfig = {
         'adr/0005-remove-rest-auth',
         'adr/0006-mcp-server-second-inbound-adapter',
         'adr/0007-analytical-data-product',
+        'adr/0008-fclm-aligned-process-path-families',
       ],
     },
   ],

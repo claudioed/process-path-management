@@ -101,3 +101,15 @@ Name of the Secret holding the analytics DSNs, when the chart creates its own.
 {{- include "process-path-management.fullname" . }}-analytics
 {{- end }}
 {{- end }}
+
+{{/*
+Fully qualified name of the frontend Module Federation remote deployment/service.
+
+The remote is served by its own nginx pod and reached through warehouse-infra's
+Nginx web gateway at /mfes/process-path-management/. It is deliberately a separate
+workload from the API: Kong never routes to it, and the OLTP Service must never
+select it.
+*/}}
+{{- define "process-path-management.frontendFullname" -}}
+{{- include "process-path-management.fullname" . }}-frontend
+{{- end }}
