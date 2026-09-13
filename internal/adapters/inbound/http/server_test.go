@@ -32,15 +32,18 @@ func (logOnlyPublisher) Publish(context.Context, shared.DomainEvent) error { ret
 func newTestServer(t *testing.T) http.Handler {
 	t.Helper()
 	repo := memory.NewProcessPathRepo()
+	scheduleRepo := memory.NewCPTScheduleRepo()
 	clock := fixedClock{time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)}
 	pub := &logOnlyPublisher{}
 
 	server := &inboundhttp.Server{
-		DefinePath:     &usecases.DefinePath{Repo: repo, Publisher: pub, Clock: clock},
-		RevisePath:     &usecases.RevisePath{Repo: repo, Publisher: pub, Clock: clock},
-		DeactivatePath: &usecases.DeactivatePath{Repo: repo, Publisher: pub, Clock: clock},
-		GetPath:        &usecases.GetPath{Repo: repo},
-		ListPaths:      &usecases.ListPaths{Repo: repo},
+		DefinePath:        &usecases.DefinePath{Repo: repo, Publisher: pub, Clock: clock},
+		RevisePath:        &usecases.RevisePath{Repo: repo, Publisher: pub, Clock: clock},
+		DeactivatePath:    &usecases.DeactivatePath{Repo: repo, Publisher: pub, Clock: clock},
+		GetPath:           &usecases.GetPath{Repo: repo},
+		ListPaths:         &usecases.ListPaths{Repo: repo},
+		DefineCPTSchedule: &usecases.DefineCPTSchedule{Repo: scheduleRepo, ProcessPathRepo: repo, Publisher: pub, Clock: clock},
+		GetCPTSchedule:    &usecases.GetCPTSchedule{Repo: scheduleRepo},
 	}
 	return inboundhttp.NewRouter(server, nil, "")
 }
@@ -57,7 +60,7 @@ func TestHealthz_ReturnsOK(t *testing.T) {
 
 func TestDefinePath_ValidRequest_Returns201(t *testing.T) {
 	router := newTestServer(t)
-	body := `{"pathId":"PICK","matchPrefix":"pick","direct":true,"requiredCapabilities":["pick"]}`
+	body := `{"pathId":"PICK","matchPrefix":"pick","direct":true,"requiredCapabilities":["pick"],"cycleTimeP95":"2h"}`
 	req := httptest.NewRequest(http.MethodPost, "/process-paths", bytes.NewBufferString(body))
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -75,7 +78,7 @@ func TestDefinePath_ValidRequest_Returns201(t *testing.T) {
 
 func TestDefinePath_InvalidMatchPrefix_Returns422WithProblemDetails(t *testing.T) {
 	router := newTestServer(t)
-	body := `{"pathId":"PICK","matchPrefix":"","direct":true,"requiredCapabilities":["pick"]}`
+	body := `{"pathId":"PICK","matchPrefix":"","direct":true,"requiredCapabilities":["pick"],"cycleTimeP95":"2h"}`
 	req := httptest.NewRequest(http.MethodPost, "/process-paths", bytes.NewBufferString(body))
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -89,7 +92,7 @@ func TestDefinePath_InvalidMatchPrefix_Returns422WithProblemDetails(t *testing.T
 
 func TestDefinePath_DuplicateId_Returns409(t *testing.T) {
 	router := newTestServer(t)
-	body := `{"pathId":"PICK","matchPrefix":"pick","direct":true,"requiredCapabilities":["pick"]}`
+	body := `{"pathId":"PICK","matchPrefix":"pick","direct":true,"requiredCapabilities":["pick"],"cycleTimeP95":"2h"}`
 
 	req1 := httptest.NewRequest(http.MethodPost, "/process-paths", bytes.NewBufferString(body))
 	rr1 := httptest.NewRecorder()
@@ -119,7 +122,7 @@ func TestGetPath_Missing_Returns404(t *testing.T) {
 func TestListPaths_ActiveOnlyByDefault_ExcludesDeactivated(t *testing.T) {
 	router := newTestServer(t)
 	define := func(id string) {
-		body := `{"pathId":"` + id + `","matchPrefix":"` + id + `","direct":true,"requiredCapabilities":["cap"]}`
+		body := `{"pathId":"` + id + `","matchPrefix":"` + id + `","direct":true,"requiredCapabilities":["cap"],"cycleTimeP95":"2h"}`
 		req := httptest.NewRequest(http.MethodPost, "/process-paths", bytes.NewBufferString(body))
 		rr := httptest.NewRecorder()
 		router.ServeHTTP(rr, req)
@@ -162,7 +165,7 @@ func TestListPaths_ActiveOnlyByDefault_ExcludesDeactivated(t *testing.T) {
 
 func TestRevisePath_ValidRequest_Returns200WithUpdatedFields(t *testing.T) {
 	router := newTestServer(t)
-	defineBody := `{"pathId":"PICK","matchPrefix":"pick","direct":true,"requiredCapabilities":["pick"]}`
+	defineBody := `{"pathId":"PICK","matchPrefix":"pick","direct":true,"requiredCapabilities":["pick"],"cycleTimeP95":"2h"}`
 	defineReq := httptest.NewRequest(http.MethodPost, "/process-paths", bytes.NewBufferString(defineBody))
 	defineRR := httptest.NewRecorder()
 	router.ServeHTTP(defineRR, defineReq)
@@ -170,7 +173,7 @@ func TestRevisePath_ValidRequest_Returns200WithUpdatedFields(t *testing.T) {
 		t.Fatalf("setup: want 201, got %d", defineRR.Code)
 	}
 
-	reviseBody := `{"matchPrefix":"pick-zone-a","requiredCapabilities":["pick","hazmat"]}`
+	reviseBody := `{"matchPrefix":"pick-zone-a","requiredCapabilities":["pick","hazmat"],"cycleTimeP95":"3h"}`
 	reviseReq := httptest.NewRequest(http.MethodPut, "/process-paths/PICK", bytes.NewBufferString(reviseBody))
 	reviseRR := httptest.NewRecorder()
 	router.ServeHTTP(reviseRR, reviseReq)
@@ -188,7 +191,7 @@ func TestRevisePath_ValidRequest_Returns200WithUpdatedFields(t *testing.T) {
 
 func TestDeactivatePath_ValidRequest_Returns204(t *testing.T) {
 	router := newTestServer(t)
-	defineBody := `{"pathId":"PICK","matchPrefix":"pick","direct":true,"requiredCapabilities":["pick"]}`
+	defineBody := `{"pathId":"PICK","matchPrefix":"pick","direct":true,"requiredCapabilities":["pick"],"cycleTimeP95":"2h"}`
 	defineReq := httptest.NewRequest(http.MethodPost, "/process-paths", bytes.NewBufferString(defineBody))
 	defineRR := httptest.NewRecorder()
 	router.ServeHTTP(defineRR, defineReq)

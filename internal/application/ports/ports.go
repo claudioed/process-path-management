@@ -8,6 +8,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/claudioed/process-path-management/internal/domain/cptschedule"
 	"github.com/claudioed/process-path-management/internal/domain/processpath"
 	"github.com/claudioed/process-path-management/internal/domain/shared"
 )
@@ -29,6 +30,14 @@ type ProcessPathRepo interface {
 	// ListAll returns every path regardless of status, for the SPA's
 	// "show deactivated too" view and audit purposes.
 	ListAll(ctx context.Context) ([]*processpath.ProcessPath, error)
+}
+
+// CPTScheduleRepo persists and retrieves CPTSchedule aggregates, keyed by
+// their SiteId (ADR 0010). One schedule per site — Save is an upsert,
+// matching ProcessPathRepo's own convention.
+type CPTScheduleRepo interface {
+	Save(ctx context.Context, s *cptschedule.CPTSchedule) error
+	FindBySiteID(ctx context.Context, siteId shared.SiteId) (*cptschedule.CPTSchedule, error)
 }
 
 // EventPublisher publishes a domain event raised by a use case. Mirrors

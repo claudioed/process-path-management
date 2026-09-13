@@ -23,7 +23,7 @@ func seed(t *testing.T) *memory.ProcessPathRepo {
 	t.Helper()
 	repo := memory.NewProcessPathRepo()
 
-	pick, err := processpath.Define(shared.PathId("PICK"), "pick", true, []shared.Capability{"pick"}, shared.DestinationLocationRoleUnset, base)
+	pick, err := processpath.Define(shared.PathId("PICK"), "pick", true, []shared.Capability{"pick"}, shared.DestinationLocationRoleUnset, 2*time.Hour, shared.Eligibility{}, base)
 	if err != nil {
 		t.Fatalf("define PICK: %v", err)
 	}
@@ -31,7 +31,7 @@ func seed(t *testing.T) *memory.ProcessPathRepo {
 		t.Fatalf("save PICK: %v", err)
 	}
 
-	rebin, err := processpath.Define(shared.PathId("REBIN"), "rebin", false, []shared.Capability{"rebin"}, shared.DestinationLocationRoleUnset, base)
+	rebin, err := processpath.Define(shared.PathId("REBIN"), "rebin", false, []shared.Capability{"rebin"}, shared.DestinationLocationRoleUnset, 2*time.Hour, shared.Eligibility{}, base)
 	if err != nil {
 		t.Fatalf("define REBIN: %v", err)
 	}
@@ -48,9 +48,11 @@ func seed(t *testing.T) *memory.ProcessPathRepo {
 func newServer(t *testing.T) string {
 	t.Helper()
 	repo := seed(t)
+	scheduleRepo := memory.NewCPTScheduleRepo()
 	deps := inboundmcp.Deps{
-		GetPath:   &usecases.GetPath{Repo: repo},
-		ListPaths: &usecases.ListPaths{Repo: repo},
+		GetPath:        &usecases.GetPath{Repo: repo},
+		ListPaths:      &usecases.ListPaths{Repo: repo},
+		GetCPTSchedule: &usecases.GetCPTSchedule{Repo: scheduleRepo},
 	}
 	server := inboundmcp.NewServer(deps)
 	httpSrv := httptest.NewServer(inboundmcp.Handler(server))
@@ -79,7 +81,7 @@ func TestServer_ToolsListAndCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	want := map[string]bool{"get_process_path": false, "list_process_paths": false}
+	want := map[string]bool{"get_process_path": false, "list_process_paths": false, "get_cpt_schedule": false}
 	for _, tool := range tools.Tools {
 		if _, ok := want[tool.Name]; ok {
 			want[tool.Name] = true

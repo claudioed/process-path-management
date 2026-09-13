@@ -27,16 +27,23 @@ type ProcessPathCreated struct {
 	// DestinationLocationRoleUnset — a path with no declared destination
 	// role carries no such field, not an empty string (ADR 0006).
 	DestinationLocationRole DestinationLocationRole
-	At                      time.Time
+	// CycleTimeP95 and Eligibility are the fulfillment capability
+	// contract (ADR 0010): the operator-declared p95 end-to-end cycle
+	// time and the rules a unit of work must satisfy to be routed to
+	// this path.
+	CycleTimeP95 time.Duration
+	Eligibility  Eligibility
+	At           time.Time
 }
 
 func (e ProcessPathCreated) EventName() string     { return "ProcessPathCreated" }
 func (e ProcessPathCreated) OccurredAt() time.Time { return e.At }
 
-// ProcessPathUpdated is raised when an ACTIVE path's matchPrefix or
-// requiredCapabilities is revised. Not raised for a no-op update (see
-// ProcessPath.Revise's early-return) — consumers should not have to
-// diff two payloads to notice nothing changed.
+// ProcessPathUpdated is raised when an ACTIVE path's matchPrefix,
+// requiredCapabilities, cycleTimeP95, or eligibility is revised. Not
+// raised for a no-op update (see ProcessPath.Revise's early-return) —
+// consumers should not have to diff two payloads to notice nothing
+// changed.
 type ProcessPathUpdated struct {
 	PathId               PathId
 	MatchPrefix          string
@@ -47,7 +54,11 @@ type ProcessPathUpdated struct {
 	// doc comment), so this is included only for a consumer's read-model
 	// convenience, not because Revise can change it.
 	DestinationLocationRole DestinationLocationRole
-	At                      time.Time
+	// CycleTimeP95 and Eligibility are the fulfillment capability
+	// contract (ADR 0010) — both are revisable via Revise.
+	CycleTimeP95 time.Duration
+	Eligibility  Eligibility
+	At           time.Time
 }
 
 func (e ProcessPathUpdated) EventName() string     { return "ProcessPathUpdated" }
