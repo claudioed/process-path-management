@@ -74,7 +74,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
         "422":
-          description: matchPrefix is empty/not lower-case, or requiredCapabilities is empty
+          description: matchPrefix is empty/not lower-case, requiredCapabilities is empty, or destinationLocationRole is not one of Drop/WorkCenter/Shipping
           content:
             application/problem+json:
               schema:
@@ -224,6 +224,8 @@ components:
             type: string
           description: Capabilities a station/associate must hold to work this path.
           example: ["pick"]
+        destinationLocationRole:
+          $ref: "#/components/schemas/DestinationLocationRole"
     RevisePathRequest:
       type: object
       required: [matchPrefix, requiredCapabilities]
@@ -253,6 +255,8 @@ components:
           items:
             type: string
           example: ["pick"]
+        destinationLocationRole:
+          $ref: "#/components/schemas/DestinationLocationRole"
         status:
           type: string
           enum: [ACTIVE, DEACTIVATED]
@@ -262,6 +266,20 @@ components:
         updatedAt:
           type: string
           format: date-time
+    DestinationLocationRole:
+      type: string
+      description: >
+        Optional declaration of what kind of facility-layout LocationRole
+        this path's completed work is destined for (ADR 0006). Omitted
+        entirely means no destination role was declared — the default,
+        and most common, case (e.g. Pick has no single destination).
+        Immutable once set at DefinePath time; never revisable via
+        RevisePath. This is declarative routing intent this service
+        publishes for a downstream consumer to interpret — it is never
+        validated against a live facility-layout lookup (this service has
+        zero inbound/outbound dependency on any other context).
+      enum: [Drop, WorkCenter, Shipping]
+      example: Drop
     ProblemDetails:
       type: object
       description: RFC 7807 Problem Details for HTTP APIs.

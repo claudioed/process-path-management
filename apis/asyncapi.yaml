@@ -124,6 +124,19 @@ components:
               match_prefix: pick
               direct: true
               required_capabilities: ["pick"]
+        - name: packPathDefinedWithDestinationLocationRole
+          summary: A new PACK path defined with a declared Drop destination role.
+          payload:
+            event_id: 6a2d3b8f-0e42-4b7c-9f1d-7c3e2f6b8a91
+            event_type: ProcessPathCreated
+            occurred_at: "2026-09-13T00:00:00Z"
+            source: process-path-management
+            data:
+              path_id: PACK
+              match_prefix: pack
+              direct: true
+              required_capabilities: ["pack"]
+              destination_location_role: Drop
 
     ProcessPathUpdated:
       name: ProcessPathUpdated
@@ -272,3 +285,13 @@ components:
           items:
             type: string
           example: ["pick"]
+        destination_location_role:
+          type: string
+          description: >-
+            Optional declaration of what kind of facility-layout
+            LocationRole this path's completed work is destined for
+            (ADR 0006). Omitted entirely (not empty-stringed) when no
+            destination role was declared for this path — the default,
+            most common case.
+          enum: ["Drop", "WorkCenter", "Shipping"]
+          example: Drop

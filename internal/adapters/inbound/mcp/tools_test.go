@@ -40,7 +40,7 @@ func (h *harness) seedPath(t *testing.T, id, matchPrefix string, direct bool, ca
 	for _, c := range caps {
 		capabilities = append(capabilities, shared.Capability(c))
 	}
-	p, err := processpath.Define(shared.PathId(id), matchPrefix, direct, capabilities, base)
+	p, err := processpath.Define(shared.PathId(id), matchPrefix, direct, capabilities, shared.DestinationLocationRoleUnset, base)
 	if err != nil {
 		t.Fatalf("seedPath define: %v", err)
 	}

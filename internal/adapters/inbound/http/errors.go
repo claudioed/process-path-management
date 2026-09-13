@@ -6,6 +6,7 @@ import (
 
 	"github.com/claudioed/process-path-management/internal/application/usecases"
 	"github.com/claudioed/process-path-management/internal/domain/processpath"
+	"github.com/claudioed/process-path-management/internal/domain/shared"
 )
 
 // statusFor maps a typed domain/application error to an HTTP status code.
@@ -20,7 +21,8 @@ func statusFor(err error) int {
 	case errors.Is(err, processpath.ErrPathDeactivated),
 		errors.Is(err, processpath.ErrEmptyMatchPrefix),
 		errors.Is(err, processpath.ErrMatchPrefixNotLowercase),
-		errors.Is(err, processpath.ErrNoRequiredCapabilities):
+		errors.Is(err, processpath.ErrNoRequiredCapabilities),
+		errors.Is(err, shared.ErrInvalidDestinationLocationRole):
 		return http.StatusUnprocessableEntity
 
 	default:
@@ -58,6 +60,8 @@ func problemFor(err error) problemInfo {
 		return problemInfo{"match-prefix-not-lowercase", "matchPrefix must be lower-case"}
 	case errors.Is(err, processpath.ErrNoRequiredCapabilities):
 		return problemInfo{"no-required-capabilities", "requiredCapabilities must be non-empty"}
+	case errors.Is(err, shared.ErrInvalidDestinationLocationRole):
+		return problemInfo{"invalid-destination-location-role", "destinationLocationRole must be one of Drop, WorkCenter, Shipping, or omitted"}
 	default:
 		return problemInfo{"internal-error", "An unexpected internal error occurred"}
 	}

@@ -81,7 +81,13 @@ func (s *Server) handleDefinePath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := s.DefinePath.Execute(r.Context(), shared.PathId(req.PathId), req.MatchPrefix, req.Direct, toCapabilities(req.RequiredCapabilities))
+	destinationLocationRole, err := shared.ParseDestinationLocationRole(req.DestinationLocationRole)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+
+	p, err := s.DefinePath.Execute(r.Context(), shared.PathId(req.PathId), req.MatchPrefix, req.Direct, toCapabilities(req.RequiredCapabilities), destinationLocationRole)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -154,13 +160,14 @@ func toProcessPathResponse(p *processpath.ProcessPath) processPathResponse {
 		strCaps[i] = string(c)
 	}
 	return processPathResponse{
-		PathId:               string(p.ID()),
-		MatchPrefix:          p.MatchPrefix(),
-		Direct:               p.Direct(),
-		RequiredCapabilities: strCaps,
-		Status:               string(p.Status()),
-		CreatedAt:            p.CreatedAt().UTC().Format(timeFormat),
-		UpdatedAt:            p.UpdatedAt().UTC().Format(timeFormat),
+		PathId:                  string(p.ID()),
+		MatchPrefix:             p.MatchPrefix(),
+		Direct:                  p.Direct(),
+		RequiredCapabilities:    strCaps,
+		DestinationLocationRole: string(p.DestinationLocationRole()),
+		Status:                  string(p.Status()),
+		CreatedAt:               p.CreatedAt().UTC().Format(timeFormat),
+		UpdatedAt:               p.UpdatedAt().UTC().Format(timeFormat),
 	}
 }
 

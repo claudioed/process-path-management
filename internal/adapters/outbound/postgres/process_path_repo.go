@@ -28,20 +28,20 @@ func NewProcessPathRepo(pool *pgxpool.Pool) *ProcessPathRepo {
 
 func (r *ProcessPathRepo) Save(ctx context.Context, p *processpath.ProcessPath) error {
 	_, err := querierFrom(ctx, r.pool).Exec(ctx, `
-		INSERT INTO process_paths (id, match_prefix, direct, required_capabilities, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO process_paths (id, match_prefix, direct, required_capabilities, destination_location_role, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (id) DO UPDATE
 		  SET match_prefix          = EXCLUDED.match_prefix,
 		      required_capabilities = EXCLUDED.required_capabilities,
 		      status                = EXCLUDED.status,
 		      updated_at            = EXCLUDED.updated_at
-	`, string(p.ID()), p.MatchPrefix(), p.Direct(), capabilitiesToStrings(p.RequiredCapabilities()), string(p.Status()), p.CreatedAt(), p.UpdatedAt())
+	`, string(p.ID()), p.MatchPrefix(), p.Direct(), capabilitiesToStrings(p.RequiredCapabilities()), destinationLocationRoleToColumn(p.DestinationLocationRole()), string(p.Status()), p.CreatedAt(), p.UpdatedAt())
 	return err
 }
 
 func (r *ProcessPathRepo) FindByID(ctx context.Context, id shared.PathId) (*processpath.ProcessPath, error) {
 	row := querierFrom(ctx, r.pool).QueryRow(ctx, `
-		SELECT id, match_prefix, direct, required_capabilities, status, created_at, updated_at
+		SELECT id, match_prefix, direct, required_capabilities, destination_location_role, status, created_at, updated_at
 		FROM process_paths
 		WHERE id = $1
 	`, string(id))
@@ -50,7 +50,7 @@ func (r *ProcessPathRepo) FindByID(ctx context.Context, id shared.PathId) (*proc
 
 func (r *ProcessPathRepo) ListActive(ctx context.Context) ([]*processpath.ProcessPath, error) {
 	return r.list(ctx, `
-		SELECT id, match_prefix, direct, required_capabilities, status, created_at, updated_at
+		SELECT id, match_prefix, direct, required_capabilities, destination_location_role, status, created_at, updated_at
 		FROM process_paths
 		WHERE status = 'ACTIVE'
 		ORDER BY id
@@ -59,7 +59,7 @@ func (r *ProcessPathRepo) ListActive(ctx context.Context) ([]*processpath.Proces
 
 func (r *ProcessPathRepo) ListAll(ctx context.Context) ([]*processpath.ProcessPath, error) {
 	return r.list(ctx, `
-		SELECT id, match_prefix, direct, required_capabilities, status, created_at, updated_at
+		SELECT id, match_prefix, direct, required_capabilities, destination_location_role, status, created_at, updated_at
 		FROM process_paths
 		ORDER BY id
 	`)
@@ -85,14 +85,15 @@ func (r *ProcessPathRepo) list(ctx context.Context, query string) ([]*processpat
 
 func scanProcessPath(row pgx.Row) (*processpath.ProcessPath, error) {
 	var (
-		id                   string
-		matchPrefix          string
-		direct               bool
-		requiredCapabilities []string
-		status               string
-		createdAt, updatedAt time.Time
+		id                      string
+		matchPrefix             string
+		direct                  bool
+		requiredCapabilities    []string
+		destinationLocationRole *string
+		status                  string
+		createdAt, updatedAt    time.Time
 	)
-	err := row.Scan(&id, &matchPrefix, &direct, &requiredCapabilities, &status, &createdAt, &updatedAt)
+	err := row.Scan(&id, &matchPrefix, &direct, &requiredCapabilities, &destinationLocationRole, &status, &createdAt, &updatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -104,10 +105,33 @@ func scanProcessPath(row pgx.Row) (*processpath.ProcessPath, error) {
 		matchPrefix,
 		direct,
 		stringsToCapabilities(requiredCapabilities),
+		destinationLocationRoleFromColumn(destinationLocationRole),
 		processpath.Status(status),
 		createdAt,
 		updatedAt,
 	), nil
+}
+
+// destinationLocationRoleToColumn maps the domain's
+// shared.DestinationLocationRoleUnset (empty string) to a real SQL NULL,
+// not the empty-string value, so the column reads as "not declared"
+// rather than an empty-but-present value.
+func destinationLocationRoleToColumn(role shared.DestinationLocationRole) *string {
+	if role == shared.DestinationLocationRoleUnset {
+		return nil
+	}
+	v := string(role)
+	return &v
+}
+
+// destinationLocationRoleFromColumn is the inverse of
+// destinationLocationRoleToColumn: a NULL column value rehydrates to
+// shared.DestinationLocationRoleUnset.
+func destinationLocationRoleFromColumn(v *string) shared.DestinationLocationRole {
+	if v == nil {
+		return shared.DestinationLocationRoleUnset
+	}
+	return shared.DestinationLocationRole(*v)
 }
 
 func capabilitiesToStrings(caps []shared.Capability) []string {

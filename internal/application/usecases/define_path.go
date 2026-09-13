@@ -29,7 +29,7 @@ type DefinePath struct {
 	Metrics ports.PathMetrics
 }
 
-func (uc *DefinePath) Execute(ctx context.Context, id shared.PathId, matchPrefix string, direct bool, requiredCapabilities []shared.Capability) (*processpath.ProcessPath, error) {
+func (uc *DefinePath) Execute(ctx context.Context, id shared.PathId, matchPrefix string, direct bool, requiredCapabilities []shared.Capability, destinationLocationRole shared.DestinationLocationRole) (*processpath.ProcessPath, error) {
 	existing, err := uc.Repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -40,7 +40,7 @@ func (uc *DefinePath) Execute(ctx context.Context, id shared.PathId, matchPrefix
 	}
 
 	now := uc.Clock.Now()
-	p, err := processpath.Define(id, matchPrefix, direct, requiredCapabilities, now)
+	p, err := processpath.Define(id, matchPrefix, direct, requiredCapabilities, destinationLocationRole, now)
 	if err != nil {
 		uc.recordRejected(ctx)
 		return nil, err
@@ -50,11 +50,12 @@ func (uc *DefinePath) Execute(ctx context.Context, id shared.PathId, matchPrefix
 			return err
 		}
 		return uc.Publisher.Publish(ctx, shared.ProcessPathCreated{
-			PathId:               p.ID(),
-			MatchPrefix:          p.MatchPrefix(),
-			Direct:               p.Direct(),
-			RequiredCapabilities: p.RequiredCapabilities(),
-			At:                   now,
+			PathId:                  p.ID(),
+			MatchPrefix:             p.MatchPrefix(),
+			Direct:                  p.Direct(),
+			RequiredCapabilities:    p.RequiredCapabilities(),
+			DestinationLocationRole: p.DestinationLocationRole(),
+			At:                      now,
 		})
 	})
 	if err != nil {

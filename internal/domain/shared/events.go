@@ -22,7 +22,12 @@ type ProcessPathCreated struct {
 	MatchPrefix          string
 	Direct               bool
 	RequiredCapabilities []Capability
-	At                   time.Time
+	// DestinationLocationRole is omitted from the wire payload (via the
+	// Kafka adapter's own DTO, not this struct) when it is
+	// DestinationLocationRoleUnset — a path with no declared destination
+	// role carries no such field, not an empty string (ADR 0006).
+	DestinationLocationRole DestinationLocationRole
+	At                      time.Time
 }
 
 func (e ProcessPathCreated) EventName() string     { return "ProcessPathCreated" }
@@ -37,7 +42,12 @@ type ProcessPathUpdated struct {
 	MatchPrefix          string
 	Direct               bool
 	RequiredCapabilities []Capability
-	At                   time.Time
+	// DestinationLocationRole is carried unchanged from the path's
+	// Define-time value — it is never revisable (see ProcessPath's own
+	// doc comment), so this is included only for a consumer's read-model
+	// convenience, not because Revise can change it.
+	DestinationLocationRole DestinationLocationRole
+	At                      time.Time
 }
 
 func (e ProcessPathUpdated) EventName() string     { return "ProcessPathUpdated" }
