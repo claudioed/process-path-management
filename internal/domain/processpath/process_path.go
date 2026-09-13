@@ -56,14 +56,23 @@ const (
 // about the path's routing shape, not an operational parameter operators
 // tune — see the retired YAML file's own comment reserving it for a
 // future multi-hop topology, not day-to-day editing).
+//
+// DestinationLocationRole is likewise immutable once set at Define time —
+// the same posture as Direct, and for the same reason: it describes a
+// structural fact about where this path's completed work is destined
+// (a routing-shape fact), not a day-to-day operator-tunable parameter
+// like matchPrefix/requiredCapabilities. It is OPTIONAL
+// (shared.DestinationLocationRoleUnset, the zero value, is a fully valid
+// permanent state) — see ADR 0006.
 type ProcessPath struct {
-	id                   shared.PathId
-	matchPrefix          string
-	direct               bool
-	requiredCapabilities []shared.Capability
-	status               Status
-	createdAt            time.Time
-	updatedAt            time.Time
+	id                      shared.PathId
+	matchPrefix             string
+	direct                  bool
+	requiredCapabilities    []shared.Capability
+	destinationLocationRole shared.DestinationLocationRole
+	status                  Status
+	createdAt               time.Time
+	updatedAt               time.Time
 }
 
 // Define constructs a brand-new, Active ProcessPath. Returns one of the
@@ -71,33 +80,39 @@ type ProcessPath struct {
 // malformed. matchPrefix is validated lower-case here (not
 // lower-cased for the caller) so persisted data is exactly what was
 // validated — never a silently-transformed value.
-func Define(id shared.PathId, matchPrefix string, direct bool, requiredCapabilities []shared.Capability, now time.Time) (*ProcessPath, error) {
-	if err := validate(matchPrefix, requiredCapabilities); err != nil {
+//
+// destinationLocationRole is optional (shared.DestinationLocationRoleUnset
+// for "no destination role declared" — most paths). Define rejects an
+// unrecognized non-empty value with shared.ErrInvalidDestinationLocationRole.
+func Define(id shared.PathId, matchPrefix string, direct bool, requiredCapabilities []shared.Capability, destinationLocationRole shared.DestinationLocationRole, now time.Time) (*ProcessPath, error) {
+	if err := validate(matchPrefix, requiredCapabilities, destinationLocationRole); err != nil {
 		return nil, err
 	}
 	return &ProcessPath{
-		id:                   id,
-		matchPrefix:          matchPrefix,
-		direct:               direct,
-		requiredCapabilities: append([]shared.Capability(nil), requiredCapabilities...),
-		status:               StatusActive,
-		createdAt:            now,
-		updatedAt:            now,
+		id:                      id,
+		matchPrefix:             matchPrefix,
+		direct:                  direct,
+		requiredCapabilities:    append([]shared.Capability(nil), requiredCapabilities...),
+		destinationLocationRole: destinationLocationRole,
+		status:                  StatusActive,
+		createdAt:               now,
+		updatedAt:               now,
 	}, nil
 }
 
 // Rehydrate reconstructs a ProcessPath from persisted state without
 // re-validating construction invariants (used by repository adapters) —
 // same pattern as labor-performance's standard.Rehydrate.
-func Rehydrate(id shared.PathId, matchPrefix string, direct bool, requiredCapabilities []shared.Capability, status Status, createdAt, updatedAt time.Time) *ProcessPath {
+func Rehydrate(id shared.PathId, matchPrefix string, direct bool, requiredCapabilities []shared.Capability, destinationLocationRole shared.DestinationLocationRole, status Status, createdAt, updatedAt time.Time) *ProcessPath {
 	return &ProcessPath{
-		id:                   id,
-		matchPrefix:          matchPrefix,
-		direct:               direct,
-		requiredCapabilities: requiredCapabilities,
-		status:               status,
-		createdAt:            createdAt,
-		updatedAt:            updatedAt,
+		id:                      id,
+		matchPrefix:             matchPrefix,
+		direct:                  direct,
+		requiredCapabilities:    requiredCapabilities,
+		destinationLocationRole: destinationLocationRole,
+		status:                  status,
+		createdAt:               createdAt,
+		updatedAt:               updatedAt,
 	}
 }
 
@@ -106,12 +121,13 @@ func Rehydrate(id shared.PathId, matchPrefix string, direct bool, requiredCapabi
 // anything actually changed (the caller uses this to decide whether to
 // raise ProcessPathUpdated — a no-op revision raises nothing, so
 // consumers never have to diff two identical payloads to notice nothing
-// changed).
+// changed). destinationLocationRole is never revisable — see the
+// ProcessPath doc comment for why it is immutable like Direct.
 func (p *ProcessPath) Revise(matchPrefix string, requiredCapabilities []shared.Capability, now time.Time) (changed bool, err error) {
 	if p.status != StatusActive {
 		return false, ErrPathDeactivated
 	}
-	if err := validate(matchPrefix, requiredCapabilities); err != nil {
+	if err := validate(matchPrefix, requiredCapabilities, p.destinationLocationRole); err != nil {
 		return false, err
 	}
 	if p.matchPrefix == matchPrefix && capabilitiesEqual(p.requiredCapabilities, requiredCapabilities) {
@@ -142,12 +158,19 @@ func (p *ProcessPath) Direct() bool        { return p.direct }
 func (p *ProcessPath) RequiredCapabilities() []shared.Capability {
 	return append([]shared.Capability(nil), p.requiredCapabilities...)
 }
+
+// DestinationLocationRole is the optional declared facility-layout
+// LocationRole this path's completed work is destined for —
+// shared.DestinationLocationRoleUnset (empty) when none was declared.
+func (p *ProcessPath) DestinationLocationRole() shared.DestinationLocationRole {
+	return p.destinationLocationRole
+}
 func (p *ProcessPath) Status() Status       { return p.status }
 func (p *ProcessPath) IsActive() bool       { return p.status == StatusActive }
 func (p *ProcessPath) CreatedAt() time.Time { return p.createdAt }
 func (p *ProcessPath) UpdatedAt() time.Time { return p.updatedAt }
 
-func validate(matchPrefix string, requiredCapabilities []shared.Capability) error {
+func validate(matchPrefix string, requiredCapabilities []shared.Capability, destinationLocationRole shared.DestinationLocationRole) error {
 	if matchPrefix == "" {
 		return ErrEmptyMatchPrefix
 	}
@@ -156,6 +179,9 @@ func validate(matchPrefix string, requiredCapabilities []shared.Capability) erro
 	}
 	if len(requiredCapabilities) == 0 {
 		return ErrNoRequiredCapabilities
+	}
+	if _, err := shared.ParseDestinationLocationRole(string(destinationLocationRole)); err != nil {
+		return err
 	}
 	return nil
 }

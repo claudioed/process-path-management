@@ -66,6 +66,7 @@ Typos, broken links and formatting are of course fair game.
 | [0006](./0006-mcp-server-second-inbound-adapter.md) | MCP server as a second inbound adapter | Accepted |
 | [0007](./0007-analytical-data-product.md) | Analytical data product (report) via a separate analytics topic | Accepted |
 | [0008](./0008-fclm-aligned-process-path-families.md) | Seven new process-path families aligned to real FC labor-tracking vocabulary | Accepted |
+| [0009](./0009-destination-location-role-on-process-path.md) | Optional destination LocationRole on a ProcessPath | Accepted |
 
 Each of these reconstructs a decision that is actually visible in this
 repository's history or code — none is a generic placeholder.

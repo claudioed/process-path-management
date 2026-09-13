@@ -44,11 +44,12 @@ func (uc *RevisePath) Execute(ctx context.Context, id shared.PathId, matchPrefix
 			return err
 		}
 		return uc.Publisher.Publish(ctx, shared.ProcessPathUpdated{
-			PathId:               p.ID(),
-			MatchPrefix:          p.MatchPrefix(),
-			Direct:               p.Direct(),
-			RequiredCapabilities: p.RequiredCapabilities(),
-			At:                   now,
+			PathId:                  p.ID(),
+			MatchPrefix:             p.MatchPrefix(),
+			Direct:                  p.Direct(),
+			RequiredCapabilities:    p.RequiredCapabilities(),
+			DestinationLocationRole: p.DestinationLocationRole(),
+			At:                      now,
 		})
 	})
 	if err != nil {

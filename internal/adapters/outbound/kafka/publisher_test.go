@@ -95,6 +95,73 @@ func TestPublish_UnknownEventType_ReturnsError(t *testing.T) {
 	}
 }
 
+// TestPublish_ProcessPathCreated_WithDestinationLocationRole_IsOnTheWire
+// proves the optional field is included when the event carries a
+// declared destination role (ADR 0006).
+func TestPublish_ProcessPathCreated_WithDestinationLocationRole_IsOnTheWire(t *testing.T) {
+	w := &fakeWriter{}
+	p := &outboundkafka.Publisher{Writer: w, NewId: func() string { return "evt-4" }}
+
+	err := p.Publish(context.Background(), shared.ProcessPathCreated{
+		PathId:                  "PACK",
+		MatchPrefix:             "pack",
+		Direct:                  true,
+		RequiredCapabilities:    []shared.Capability{"pack"},
+		DestinationLocationRole: shared.DestinationLocationRoleDrop,
+		At:                      time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(w.messages[0].Value, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	var data map[string]json.RawMessage
+	if err := json.Unmarshal(raw["data"], &data); err != nil {
+		t.Fatalf("unmarshal data: %v", err)
+	}
+	var role string
+	if err := json.Unmarshal(data["destination_location_role"], &role); err != nil {
+		t.Fatalf("unmarshal destination_location_role: %v", err)
+	}
+	if role != "Drop" {
+		t.Fatalf("want destination_location_role Drop, got %q", role)
+	}
+}
+
+// TestPublish_ProcessPathCreated_WithoutDestinationLocationRole_OmitsField
+// proves the field is omitted entirely (not empty-stringed) for a path
+// that never declared one -- the default, most common case.
+func TestPublish_ProcessPathCreated_WithoutDestinationLocationRole_OmitsField(t *testing.T) {
+	w := &fakeWriter{}
+	p := &outboundkafka.Publisher{Writer: w, NewId: func() string { return "evt-5" }}
+
+	err := p.Publish(context.Background(), shared.ProcessPathCreated{
+		PathId:               "PICK",
+		MatchPrefix:          "pick",
+		Direct:               true,
+		RequiredCapabilities: []shared.Capability{"pick"},
+		At:                   time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(w.messages[0].Value, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	var data map[string]json.RawMessage
+	if err := json.Unmarshal(raw["data"], &data); err != nil {
+		t.Fatalf("unmarshal data: %v", err)
+	}
+	if _, present := data["destination_location_role"]; present {
+		t.Fatal("expected destination_location_role to be omitted when unset")
+	}
+}
+
 type unmarshalableEvent struct{}
 
 func (unmarshalableEvent) EventName() string     { return "Unknown" }
