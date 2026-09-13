@@ -30,7 +30,7 @@ func TestPostgres_ProcessPathRoundTrip(t *testing.T) {
 	id := shared.PathId("PICK-IT-" + time.Now().UTC().Format("150405.000000"))
 	now := time.Now().UTC().Truncate(time.Microsecond)
 
-	p, err := processpath.Define(id, "pick", true, []shared.Capability{"pick"}, now)
+	p, err := processpath.Define(id, "pick", true, []shared.Capability{"pick"}, shared.DestinationLocationRoleUnset, now)
 	if err != nil {
 		t.Fatalf("unexpected error defining path: %v", err)
 	}

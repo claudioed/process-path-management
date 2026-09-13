@@ -58,11 +58,15 @@ type Envelope struct {
 // topic. RequiredCapabilities is omitted (not empty-arrayed) on a
 // ProcessPathDeactivated event, since a deactivation carries no
 // definition data — only the PathId and the fact that it happened.
+// DestinationLocationRole is likewise omitted (not empty-stringed) on
+// any event for a path that never declared one — a path with no
+// destination role carries no such field on the wire (ADR 0006).
 type ProcessPathData struct {
-	PathId               string   `json:"path_id"`
-	MatchPrefix          string   `json:"match_prefix,omitempty"`
-	Direct               bool     `json:"direct,omitempty"`
-	RequiredCapabilities []string `json:"required_capabilities,omitempty"`
+	PathId                  string   `json:"path_id"`
+	MatchPrefix             string   `json:"match_prefix,omitempty"`
+	Direct                  bool     `json:"direct,omitempty"`
+	RequiredCapabilities    []string `json:"required_capabilities,omitempty"`
+	DestinationLocationRole string   `json:"destination_location_role,omitempty"`
 }
 
 // Writer is the subset of *kafkago.Writer the Publisher needs, so tests
@@ -146,19 +150,21 @@ func Encode(event shared.DomainEvent, eventId string) (Encoded, error) {
 		pathId = string(e.PathId)
 		typ = EventTypeProcessPathCreated
 		data = ProcessPathData{
-			PathId:               pathId,
-			MatchPrefix:          e.MatchPrefix,
-			Direct:               e.Direct,
-			RequiredCapabilities: capabilitiesToStrings(e.RequiredCapabilities),
+			PathId:                  pathId,
+			MatchPrefix:             e.MatchPrefix,
+			Direct:                  e.Direct,
+			RequiredCapabilities:    capabilitiesToStrings(e.RequiredCapabilities),
+			DestinationLocationRole: string(e.DestinationLocationRole),
 		}
 	case shared.ProcessPathUpdated:
 		pathId = string(e.PathId)
 		typ = EventTypeProcessPathUpdated
 		data = ProcessPathData{
-			PathId:               pathId,
-			MatchPrefix:          e.MatchPrefix,
-			Direct:               e.Direct,
-			RequiredCapabilities: capabilitiesToStrings(e.RequiredCapabilities),
+			PathId:                  pathId,
+			MatchPrefix:             e.MatchPrefix,
+			Direct:                  e.Direct,
+			RequiredCapabilities:    capabilitiesToStrings(e.RequiredCapabilities),
+			DestinationLocationRole: string(e.DestinationLocationRole),
 		}
 	case shared.ProcessPathDeactivated:
 		pathId = string(e.PathId)
