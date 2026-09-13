@@ -10,10 +10,8 @@ description: ADR 0010 — a ProcessPath carries the static capability facts a pr
 
 ## Status
 
-Proposed. Companion to order-management ADR 0014 (promise derived from
-fulfillment capability). Neither is meaningful without the other; they
-are raised together so the boundary between them can be accepted or
-rejected as one decision.
+Accepted. Companion to order-management ADR 0014 (promise derived from
+fulfillment capability), accepted together.
 
 ## Context
 
