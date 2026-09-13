@@ -158,6 +158,7 @@ func (w *world) definePath(pathId, matchPrefix, capabilitiesCSV string) error {
 		"matchPrefix":          matchPrefix,
 		"direct":               true,
 		"requiredCapabilities": splitCapabilities(capabilitiesCSV),
+		"cycleTimeP95":         "2h",
 	})
 }
 
@@ -187,6 +188,7 @@ func (w *world) revisePath(pathId, matchPrefix, capabilitiesCSV string) error {
 	return w.do(http.MethodPut, "/process-paths/"+pathId, map[string]any{
 		"matchPrefix":          matchPrefix,
 		"requiredCapabilities": splitCapabilities(capabilitiesCSV),
+		"cycleTimeP95":         "2h",
 	})
 }
 

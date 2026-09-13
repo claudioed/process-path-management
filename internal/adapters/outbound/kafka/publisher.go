@@ -14,6 +14,7 @@ import (
 
 	kafkago "github.com/segmentio/kafka-go"
 
+	"github.com/claudioed/process-path-management/internal/domain/cptschedule"
 	"github.com/claudioed/process-path-management/internal/domain/shared"
 )
 
@@ -38,6 +39,7 @@ const (
 	EventTypeProcessPathCreated     = "ProcessPathCreated"
 	EventTypeProcessPathUpdated     = "ProcessPathUpdated"
 	EventTypeProcessPathDeactivated = "ProcessPathDeactivated"
+	EventTypeCPTScheduleChanged     = "CPTScheduleChanged"
 )
 
 // Envelope is the CloudEvents-like wrapper shared across all
@@ -54,19 +56,57 @@ type Envelope struct {
 	Data       any       `json:"data"`
 }
 
-// ProcessPathData is the payload shape for ALL THREE event types on this
-// topic. RequiredCapabilities is omitted (not empty-arrayed) on a
-// ProcessPathDeactivated event, since a deactivation carries no
-// definition data — only the PathId and the fact that it happened.
-// DestinationLocationRole is likewise omitted (not empty-stringed) on
-// any event for a path that never declared one — a path with no
-// destination role carries no such field on the wire (ADR 0006).
+// ProcessPathData is the payload shape for ALL THREE ProcessPath* event
+// types on this topic. RequiredCapabilities is omitted (not
+// empty-arrayed) on a ProcessPathDeactivated event, since a deactivation
+// carries no definition data — only the PathId and the fact that it
+// happened. DestinationLocationRole is likewise omitted (not
+// empty-stringed) on any event for a path that never declared one — a
+// path with no destination role carries no such field on the wire (ADR
+// 0006).
+//
+// CycleTimeP95 and Eligibility are the fulfillment capability contract
+// (ADR 0010), additive on ProcessPathCreated/Updated. CycleTimeP95 is
+// encoded as a Go duration string (e.g. "2h0m0s") rather than a bare
+// number, so its unit is unambiguous on the wire without a separate
+// units field.
 type ProcessPathData struct {
-	PathId                  string   `json:"path_id"`
-	MatchPrefix             string   `json:"match_prefix,omitempty"`
-	Direct                  bool     `json:"direct,omitempty"`
-	RequiredCapabilities    []string `json:"required_capabilities,omitempty"`
-	DestinationLocationRole string   `json:"destination_location_role,omitempty"`
+	PathId                  string           `json:"path_id"`
+	MatchPrefix             string           `json:"match_prefix,omitempty"`
+	Direct                  bool             `json:"direct,omitempty"`
+	RequiredCapabilities    []string         `json:"required_capabilities,omitempty"`
+	DestinationLocationRole string           `json:"destination_location_role,omitempty"`
+	CycleTimeP95            string           `json:"cycle_time_p95,omitempty"`
+	Eligibility             *EligibilityData `json:"eligibility,omitempty"`
+}
+
+// EligibilityData is the wire shape of shared.Eligibility. Omitted from
+// ProcessPathData entirely (via the pointer + omitempty above) on a
+// ProcessPathDeactivated event, matching the same "no definition data on
+// a deactivation" discipline the other fields already follow.
+type EligibilityData struct {
+	MaxUnitsPerLine           *int     `json:"max_units_per_line,omitempty"`
+	RequiredProductAttributes []string `json:"required_product_attributes,omitempty"`
+	ExcludedProductAttributes []string `json:"excluded_product_attributes,omitempty"`
+	NonSortable               bool     `json:"non_sortable,omitempty"`
+}
+
+// CPTScheduleData is the payload shape for CPTScheduleChanged (ADR
+// 0010) — a full snapshot of the schedule, matching the "self-sufficient
+// event" convention ProcessPathCreated/Updated already follow.
+type CPTScheduleData struct {
+	SiteId   string       `json:"site_id"`
+	Timezone string       `json:"timezone"`
+	Cutoffs  []CutoffData `json:"cutoffs"`
+}
+
+// CutoffData is the wire shape of one cptschedule.CutoffSnapshot.
+type CutoffData struct {
+	CptId           string   `json:"cpt_id"`
+	LocalTime       string   `json:"local_time"`
+	DaysOfWeek      []string `json:"days_of_week"`
+	ShipMethod      string   `json:"ship_method"`
+	EligiblePathIds []string `json:"eligible_path_ids"`
 }
 
 // Writer is the subset of *kafkago.Writer the Publisher needs, so tests
@@ -141,39 +181,51 @@ func (IntegrationEncoder) Encode(event shared.DomainEvent, eventId string) (Enco
 // detectable by consumers.
 func Encode(event shared.DomainEvent, eventId string) (Encoded, error) {
 	var (
-		pathId string
-		data   ProcessPathData
-		typ    string
+		key  string
+		data any
+		typ  string
 	)
 	switch e := event.(type) {
 	case shared.ProcessPathCreated:
-		pathId = string(e.PathId)
+		key = string(e.PathId)
 		typ = EventTypeProcessPathCreated
 		data = ProcessPathData{
-			PathId:                  pathId,
+			PathId:                  key,
 			MatchPrefix:             e.MatchPrefix,
 			Direct:                  e.Direct,
 			RequiredCapabilities:    capabilitiesToStrings(e.RequiredCapabilities),
 			DestinationLocationRole: string(e.DestinationLocationRole),
+			CycleTimeP95:            e.CycleTimeP95.String(),
+			Eligibility:             eligibilityToData(e.Eligibility),
 		}
 	case shared.ProcessPathUpdated:
-		pathId = string(e.PathId)
+		key = string(e.PathId)
 		typ = EventTypeProcessPathUpdated
 		data = ProcessPathData{
-			PathId:                  pathId,
+			PathId:                  key,
 			MatchPrefix:             e.MatchPrefix,
 			Direct:                  e.Direct,
 			RequiredCapabilities:    capabilitiesToStrings(e.RequiredCapabilities),
 			DestinationLocationRole: string(e.DestinationLocationRole),
+			CycleTimeP95:            e.CycleTimeP95.String(),
+			Eligibility:             eligibilityToData(e.Eligibility),
 		}
 	case shared.ProcessPathDeactivated:
-		pathId = string(e.PathId)
+		key = string(e.PathId)
 		typ = EventTypeProcessPathDeactivated
-		data = ProcessPathData{PathId: pathId}
+		data = ProcessPathData{PathId: key}
+	case cptschedule.CPTScheduleChanged:
+		key = string(e.SiteId)
+		typ = EventTypeCPTScheduleChanged
+		data = CPTScheduleData{
+			SiteId:   key,
+			Timezone: e.Timezone,
+			Cutoffs:  cutoffsToData(e.Cutoffs),
+		}
 	default:
 		// An event type this publisher does not know how to serialize.
 		// Every event this service's use cases raise today is one of
-		// the three above; a future new event type must be added here
+		// the four above; a future new event type must be added here
 		// explicitly rather than silently dropped.
 		return Encoded{}, fmt.Errorf("kafka: unknown event type %T", event)
 	}
@@ -189,7 +241,7 @@ func Encode(event shared.DomainEvent, eventId string) (Encoded, error) {
 	if err != nil {
 		return Encoded{}, fmt.Errorf("kafka: marshal envelope: %w", err)
 	}
-	return Encoded{Topic: Topic, EventId: eventId, EventType: typ, Key: pathId, Value: payload}, nil
+	return Encoded{Topic: Topic, EventId: eventId, EventType: typ, Key: key, Value: payload}, nil
 }
 
 // Publish forwards event onto Kafka directly (no outbox), keyed by
@@ -230,6 +282,52 @@ func capabilitiesToStrings(caps []shared.Capability) []string {
 	out := make([]string, len(caps))
 	for i, c := range caps {
 		out[i] = string(c)
+	}
+	return out
+}
+
+// eligibilityToData maps a shared.Eligibility value object onto its wire
+// shape. Eligibility{} (the fully permissive zero value) still produces
+// a non-nil *EligibilityData with every field omitted by omitempty — the
+// pointer only becomes nil for a ProcessPathDeactivated event, which
+// never constructs one at all (see Encode's switch above).
+func eligibilityToData(e shared.Eligibility) *EligibilityData {
+	return &EligibilityData{
+		MaxUnitsPerLine:           e.MaxUnitsPerLine(),
+		RequiredProductAttributes: e.RequiredProductAttributes(),
+		ExcludedProductAttributes: e.ExcludedProductAttributes(),
+		NonSortable:               e.NonSortable(),
+	}
+}
+
+// cutoffsToData maps a CPTScheduleChanged event's cutoff snapshots onto
+// their wire shape.
+func cutoffsToData(cutoffs []cptschedule.CutoffSnapshot) []CutoffData {
+	out := make([]CutoffData, 0, len(cutoffs))
+	for _, c := range cutoffs {
+		out = append(out, CutoffData{
+			CptId:           c.CptId,
+			LocalTime:       c.LocalTime,
+			DaysOfWeek:      weekdaysToStrings(c.DaysOfWeek),
+			ShipMethod:      c.ShipMethod,
+			EligiblePathIds: pathIdsToStrings(c.EligiblePathIds),
+		})
+	}
+	return out
+}
+
+func weekdaysToStrings(ds []cptschedule.Weekday) []string {
+	out := make([]string, len(ds))
+	for i, d := range ds {
+		out[i] = string(d)
+	}
+	return out
+}
+
+func pathIdsToStrings(ids []shared.PathId) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = string(id)
 	}
 	return out
 }

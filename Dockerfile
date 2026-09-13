@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # --- runtime stage ---
 FROM alpine:3.24
 RUN apk upgrade --no-cache && \
-    apk add --no-cache ca-certificates && \
+    apk add --no-cache ca-certificates tzdata && \
     addgroup -g 1000 -S app && adduser -u 1000 -S app -G app
 WORKDIR /app
 COPY --from=build --chown=app:app /out/pathmgmt ./pathmgmt

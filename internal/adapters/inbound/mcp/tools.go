@@ -28,6 +28,10 @@ type Deps struct {
 	// answers "what process paths currently exist" (active-only by
 	// default, or every path including deactivated ones).
 	ListPaths ListPathsQuery
+	// GetCPTSchedule is the read use case for a site's CPT schedule (ADR
+	// 0010). Nil disables the get_cpt_schedule tool without disabling
+	// the others — same optional-tool convention Reports already uses.
+	GetCPTSchedule GetCPTScheduleQuery
 	// Reports is the pathmgmt-reports REST client the catalogue-growth
 	// report tool calls. Nil disables that tool (e.g. a deployment with
 	// analytics not yet enabled) without disabling the other two tools.
@@ -83,6 +87,26 @@ func (d Deps) listProcessPaths(ctx context.Context, in listProcessPathsInput) (l
 	return listProcessPathsOutput{Paths: dtos}, nil
 }
 
+// --- get_cpt_schedule (ADR 0010) --------------------------------------------
+
+type getCPTScheduleInput struct {
+	SiteId string `json:"siteId" jsonschema:"the site id to look up the CPT schedule for, e.g. sp1"`
+}
+
+func (d Deps) getCPTSchedule(ctx context.Context, in getCPTScheduleInput) (cptScheduleDTO, error) {
+	if in.SiteId == "" {
+		return cptScheduleDTO{}, fmt.Errorf("siteId is required")
+	}
+	s, err := d.GetCPTSchedule.Execute(ctx, shared.SiteId(in.SiteId))
+	if err != nil {
+		// usecases.ErrCPTScheduleNotFound (and any other use case error)
+		// surfaces unchanged as the tool error, matching
+		// get_process_path's own convention.
+		return cptScheduleDTO{}, err
+	}
+	return toCPTScheduleDTO(s), nil
+}
+
 // --- registration -----------------------------------------------------------
 
 // registerTools adds every tool to the server, each wrapped so its
@@ -94,7 +118,7 @@ func (d Deps) registerTools(server *mcp.Server) {
 
 	addTool(server, &mcp.Tool{
 		Name:        "get_process_path",
-		Description: "Return the full definition of one process path by its canonical id: matchPrefix, direct, requiredCapabilities, status, and timestamps. Not found is returned as a tool-level error.",
+		Description: "Return the full definition of one process path by its canonical id: matchPrefix, direct, requiredCapabilities, cycleTimeP95, eligibility, status, and timestamps. Not found is returned as a tool-level error.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly},
 	}, d.getProcessPath)
 
@@ -103,6 +127,14 @@ func (d Deps) registerTools(server *mcp.Server) {
 		Description: "List process paths in the catalogue. activeOnly (default true) restricts the result to ACTIVE paths; set it false to include deactivated ones too.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly},
 	}, d.listProcessPaths)
+
+	if d.GetCPTSchedule != nil {
+		addTool(server, &mcp.Tool{
+			Name:        "get_cpt_schedule",
+			Description: "Return one site's Critical Pull Time (CPT) schedule: timezone and the recurring daily cutoffs (cptId, localTime, daysOfWeek, shipMethod, eligiblePathIds). Not found is returned as a tool-level error. Read-only (ADR 0010) — there is no write tool for the schedule.",
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly},
+		}, d.getCPTSchedule)
+	}
 
 	d.registerReportTool(server)
 }
