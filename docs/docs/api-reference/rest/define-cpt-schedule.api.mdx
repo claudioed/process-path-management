@@ -1,0 +1,71 @@
+---
+id: define-cpt-schedule
+title: "Define or wholesale-revise a site's CPT schedule"
+description: "There is no separate create/revise endpoint: every PUT replaces the schedule's timezone and cutoffs in full (ADR 0010) — a CPTSchedule has no partial-update semantics. Invariants: at least one cutoff; cptIds unique within the schedule; every cutoff's eligiblePathIds entry must reference an Active ProcessPath in this service's own store (the one cross-aggregate check, enforced at write time). A no-op revision (identical timezone and cutoffs) is a successful 200 that does NOT republish CPTScheduleChanged."
+sidebar_label: "Define or wholesale-revise a site's CPT schedule"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "put api-method"
+info_path: docs/api-reference/rest/process-path-management-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Define or wholesale-revise a site's CPT schedule"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"put"}
+  path={"/sites/{siteId}/cpt-schedule"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+There is no separate create/revise endpoint: every PUT replaces the schedule's timezone and cutoffs in full (ADR 0010) — a CPTSchedule has no partial-update semantics. Invariants: at least one cutoff; cptIds unique within the schedule; every cutoff's eligiblePathIds entry must reference an Active ProcessPath in this service's own store (the one cross-aggregate check, enforced at write time). A no-op revision (identical timezone and cutoffs) is a successful 200 that does NOT republish CPTScheduleChanged.
+
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./define-cpt-schedule.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./define-cpt-schedule.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./define-cpt-schedule.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

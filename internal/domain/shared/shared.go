@@ -22,6 +22,15 @@ type PathId string
 // vocabulary is carried here as a plain string, not redefined.
 type Capability string
 
+// SiteId identifies a fulfillment site, the identity of the CPTSchedule
+// aggregate (ADR 0010). It uses facility-layout's site identifier
+// vocabulary but is NOT validated against it: this service has zero
+// inbound dependency (ADR 0001) and that posture is kept here too — a
+// schedule for an unknown site is an operator error that shows up as an
+// unroutable order in order-management, not a coupling into this
+// service.
+type SiteId string
+
 // DestinationLocationRole is an OPTIONAL declaration of what kind of
 // facility-layout LocationRole a completed task on this path is destined
 // for — e.g. a Pack path's output goes to a Drop location, a QC path's
