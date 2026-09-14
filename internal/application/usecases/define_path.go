@@ -5,6 +5,7 @@ package usecases
 
 import (
 	"context"
+	"time"
 
 	"github.com/claudioed/process-path-management/internal/application/ports"
 	"github.com/claudioed/process-path-management/internal/domain/processpath"
@@ -29,7 +30,7 @@ type DefinePath struct {
 	Metrics ports.PathMetrics
 }
 
-func (uc *DefinePath) Execute(ctx context.Context, id shared.PathId, matchPrefix string, direct bool, requiredCapabilities []shared.Capability, destinationLocationRole shared.DestinationLocationRole) (*processpath.ProcessPath, error) {
+func (uc *DefinePath) Execute(ctx context.Context, id shared.PathId, matchPrefix string, direct bool, requiredCapabilities []shared.Capability, destinationLocationRole shared.DestinationLocationRole, cycleTimeP95 time.Duration, eligibility shared.Eligibility) (*processpath.ProcessPath, error) {
 	existing, err := uc.Repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -40,7 +41,7 @@ func (uc *DefinePath) Execute(ctx context.Context, id shared.PathId, matchPrefix
 	}
 
 	now := uc.Clock.Now()
-	p, err := processpath.Define(id, matchPrefix, direct, requiredCapabilities, destinationLocationRole, now)
+	p, err := processpath.Define(id, matchPrefix, direct, requiredCapabilities, destinationLocationRole, cycleTimeP95, eligibility, now)
 	if err != nil {
 		uc.recordRejected(ctx)
 		return nil, err
@@ -55,6 +56,8 @@ func (uc *DefinePath) Execute(ctx context.Context, id shared.PathId, matchPrefix
 			Direct:                  p.Direct(),
 			RequiredCapabilities:    p.RequiredCapabilities(),
 			DestinationLocationRole: p.DestinationLocationRole(),
+			CycleTimeP95:            p.CycleTimeP95(),
+			Eligibility:             p.Eligibility(),
 			At:                      now,
 		})
 	})

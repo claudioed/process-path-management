@@ -15,6 +15,7 @@ import (
 	otelchimetric "github.com/riandyrn/otelchi/metric"
 
 	"github.com/claudioed/process-path-management/internal/application/usecases"
+	"github.com/claudioed/process-path-management/internal/domain/cptschedule"
 	"github.com/claudioed/process-path-management/internal/domain/processpath"
 	"github.com/claudioed/process-path-management/internal/domain/shared"
 )
@@ -31,6 +32,14 @@ type Server struct {
 	DeactivatePath *usecases.DeactivatePath
 	GetPath        *usecases.GetPath
 	ListPaths      *usecases.ListPaths
+	// DefineCPTSchedule and GetCPTSchedule are optional (ADR 0010): a nil
+	// value means the CPT schedule surface is not wired, and the
+	// corresponding endpoints are simply never reached (they are always
+	// registered on the router; nil use cases would only be a wiring
+	// bug, not an expected runtime state — this mirrors how every other
+	// use case field here is always populated by the composition root).
+	DefineCPTSchedule *usecases.DefineCPTSchedule
+	GetCPTSchedule    *usecases.GetCPTSchedule
 }
 
 // NewRouter builds the chi router for this service's REST API. A nil
@@ -68,6 +77,9 @@ func NewRouter(s *Server, logger *slog.Logger, serviceName string) http.Handler 
 	r.Put("/process-paths/{pathId}", s.handleRevisePath)
 	r.Delete("/process-paths/{pathId}", s.handleDeactivatePath)
 
+	r.Put("/sites/{siteId}/cpt-schedule", s.handleDefineCPTSchedule)
+	r.Get("/sites/{siteId}/cpt-schedule", s.handleGetCPTSchedule)
+
 	return r
 }
 
@@ -86,8 +98,13 @@ func (s *Server) handleDefinePath(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
+	cycleTimeP95, err := parseCycleTimeP95(req.CycleTimeP95)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
 
-	p, err := s.DefinePath.Execute(r.Context(), shared.PathId(req.PathId), req.MatchPrefix, req.Direct, toCapabilities(req.RequiredCapabilities), destinationLocationRole)
+	p, err := s.DefinePath.Execute(r.Context(), shared.PathId(req.PathId), req.MatchPrefix, req.Direct, toCapabilities(req.RequiredCapabilities), destinationLocationRole, cycleTimeP95, toEligibility(req.Eligibility))
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -132,8 +149,13 @@ func (s *Server) handleRevisePath(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	cycleTimeP95, err := parseCycleTimeP95(req.CycleTimeP95)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
 
-	p, err := s.RevisePath.Execute(r.Context(), pathId, req.MatchPrefix, toCapabilities(req.RequiredCapabilities))
+	p, err := s.RevisePath.Execute(r.Context(), pathId, req.MatchPrefix, toCapabilities(req.RequiredCapabilities), cycleTimeP95, toEligibility(req.Eligibility))
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -151,6 +173,38 @@ func (s *Server) handleDeactivatePath(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleDefineCPTSchedule(w http.ResponseWriter, r *http.Request) {
+	siteId := shared.SiteId(chi.URLParam(r, "siteId"))
+
+	var req defineCPTScheduleRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	cutoffs, err := toCutoffs(req.Cutoffs)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+
+	sched, err := s.DefineCPTSchedule.Execute(r.Context(), siteId, req.Timezone, cutoffs)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toCPTScheduleResponse(sched))
+}
+
+func (s *Server) handleGetCPTSchedule(w http.ResponseWriter, r *http.Request) {
+	siteId := shared.SiteId(chi.URLParam(r, "siteId"))
+
+	sched, err := s.GetCPTSchedule.Execute(r.Context(), siteId)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toCPTScheduleResponse(sched))
+}
+
 const timeFormat = time.RFC3339
 
 func toProcessPathResponse(p *processpath.ProcessPath) processPathResponse {
@@ -165,10 +219,108 @@ func toProcessPathResponse(p *processpath.ProcessPath) processPathResponse {
 		Direct:                  p.Direct(),
 		RequiredCapabilities:    strCaps,
 		DestinationLocationRole: string(p.DestinationLocationRole()),
+		CycleTimeP95:            p.CycleTimeP95().String(),
+		Eligibility:             toEligibilityResponse(p.Eligibility()),
 		Status:                  string(p.Status()),
 		CreatedAt:               p.CreatedAt().UTC().Format(timeFormat),
 		UpdatedAt:               p.UpdatedAt().UTC().Format(timeFormat),
 	}
+}
+
+func toEligibilityResponse(e shared.Eligibility) eligibilityResponse {
+	return eligibilityResponse{
+		MaxUnitsPerLine:           e.MaxUnitsPerLine(),
+		RequiredProductAttributes: e.RequiredProductAttributes(),
+		ExcludedProductAttributes: e.ExcludedProductAttributes(),
+		NonSortable:               e.NonSortable(),
+	}
+}
+
+// toEligibility maps the request DTO onto shared.Eligibility. A nil req
+// (no "eligibility" key on the request body) maps to the fully
+// permissive zero value (ADR 0010).
+func toEligibility(req *eligibilityRequest) shared.Eligibility {
+	if req == nil {
+		return shared.Eligibility{}
+	}
+	return shared.NewEligibility(req.MaxUnitsPerLine, req.RequiredProductAttributes, req.ExcludedProductAttributes, req.NonSortable)
+}
+
+// parseCycleTimeP95 parses a Go duration string (e.g. "2h", "90m"). A
+// malformed value is reported the same way the domain's own
+// ErrInvalidCycleTime is (422) via statusFor/problemFor's default
+// mapping, so callers see a consistent RFC 7807 shape either way.
+func parseCycleTimeP95(s string) (time.Duration, error) {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, processpath.ErrInvalidCycleTime
+	}
+	return d, nil
+}
+
+func toCutoffs(reqs []cutoffRequest) ([]cptschedule.Cutoff, error) {
+	out := make([]cptschedule.Cutoff, 0, len(reqs))
+	for _, r := range reqs {
+		c, err := cptschedule.NewCutoff(r.CptId, r.LocalTime, toWeekdays(r.DaysOfWeek), r.ShipMethod, toPathIds(r.EligiblePathIds))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+func toWeekdays(ss []string) []cptschedule.Weekday {
+	out := make([]cptschedule.Weekday, len(ss))
+	for i, s := range ss {
+		out[i] = cptschedule.Weekday(s)
+	}
+	return out
+}
+
+func toPathIds(ss []string) []shared.PathId {
+	out := make([]shared.PathId, len(ss))
+	for i, s := range ss {
+		out[i] = shared.PathId(s)
+	}
+	return out
+}
+
+func toCPTScheduleResponse(s *cptschedule.CPTSchedule) cptScheduleResponse {
+	cutoffs := s.Cutoffs()
+	out := make([]cutoffResponse, 0, len(cutoffs))
+	for _, c := range cutoffs {
+		out = append(out, cutoffResponse{
+			CptId:           c.CptId(),
+			LocalTime:       c.LocalTime(),
+			DaysOfWeek:      weekdaysToStrings(c.DaysOfWeek()),
+			ShipMethod:      c.ShipMethod(),
+			EligiblePathIds: pathIdsToStrings(c.EligiblePathIds()),
+		})
+	}
+	return cptScheduleResponse{
+		SiteId:    string(s.SiteId()),
+		Timezone:  s.Timezone(),
+		Cutoffs:   out,
+		CreatedAt: s.CreatedAt().UTC().Format(timeFormat),
+		UpdatedAt: s.UpdatedAt().UTC().Format(timeFormat),
+	}
+}
+
+func weekdaysToStrings(ds []cptschedule.Weekday) []string {
+	out := make([]string, len(ds))
+	for i, d := range ds {
+		out[i] = string(d)
+	}
+	return out
+}
+
+func pathIdsToStrings(ids []shared.PathId) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = string(id)
+	}
+	return out
 }
 
 func toCapabilities(ss []string) []shared.Capability {
