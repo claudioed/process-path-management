@@ -124,7 +124,7 @@ Every `make` target mirrors a step in `.github/workflows/ci.yml`:
 
 ```bash
 make check         # FAST bundle: fmt-check vet build lint test — run after every change
-make check-all      # check + coverage (90% gate on domain + application) — run before pushing
+make check-all      # check + coverage (90% gate on domain + application) + arch-test + bdd — run before pushing
 make build           # go build ./...
 make vet             # go vet ./...
 make fmt             # gofmt -w . (in place)
@@ -135,7 +135,10 @@ make coverage        # coverage profile + the 90% threshold gate
 make bdd             # go test ./... -run TestFeatures -v (godog/Gherkin)
 make arch-test       # go test ./internal/architecture/... -v (hexagonal dependency rule)
 make integration     # go test -tags=integration ./... -race -count=1 (needs DATABASE_URL; testcontainers-backed)
-make mutation        # gremlins unleash ./internal/domain (see .gremlins.yaml, threshold 99%)
+make mutation-fast   # gremlins unleash ./internal/domain — CI's blocking mutation job (see .gremlins.yaml, threshold 99%)
+make mutation        # alias for mutation-fast
+make api-lint        # Spectral lint on apis/openapi.yaml and apis/asyncapi.yaml
+make vuln            # govulncheck ./...
 ```
 
 Additional verification surfaces with their own CI job, run manually when

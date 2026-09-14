@@ -73,13 +73,18 @@ func run() error {
 		return err
 	}
 	defer closeAdapters()
+	scheduleRepo, err := buildCPTScheduleRepo(ctx, databaseURL, logger)
+	if err != nil {
+		return err
+	}
 
 	// The MCP adapter reuses the SAME read use cases the HTTP adapter
 	// uses: GetPath and ListPaths. It never writes, so no
 	// EventPublisher/UnitOfWork/Clock is needed here.
 	deps := inboundmcp.Deps{
-		GetPath:   &usecases.GetPath{Repo: repo},
-		ListPaths: &usecases.ListPaths{Repo: repo},
+		GetPath:        &usecases.GetPath{Repo: repo},
+		ListPaths:      &usecases.ListPaths{Repo: repo},
+		GetCPTSchedule: &usecases.GetCPTSchedule{Repo: scheduleRepo},
 	}
 	// When REPORTS_BASE_URL is set, the curated catalogue-growth report
 	// tool is additionally registered, calling the pathmgmt-reports REST
@@ -160,6 +165,25 @@ func buildRepo(ctx context.Context, databaseURL, migrationsPath string, logger *
 		return nil, noop, err
 	}
 	return postgres.NewProcessPathRepo(pool), pool.Close, nil
+}
+
+// buildCPTScheduleRepo wires the Postgres CPTScheduleRepo when
+// DATABASE_URL is set, or falls back to the in-memory repo otherwise
+// (ADR 0010) — mirroring buildRepo's own selection. Migrations have
+// already run via buildRepo's own call to postgres.RunMigrations by the
+// time this is invoked, so this does not re-run them; it only needs its
+// own pool since the two repos never share one across composition roots
+// in this binary.
+func buildCPTScheduleRepo(ctx context.Context, databaseURL string, logger *slog.Logger) (ports.CPTScheduleRepo, error) {
+	if databaseURL == "" {
+		logger.Info("DATABASE_URL not set, using in-memory CPTScheduleRepo")
+		return memory.NewCPTScheduleRepo(), nil
+	}
+	pool, err := postgres.NewPool(ctx, databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	return postgres.NewCPTScheduleRepo(pool), nil
 }
 
 // newLogger builds the process-wide structured logger, wrapped so any

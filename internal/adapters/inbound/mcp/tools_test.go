@@ -40,7 +40,7 @@ func (h *harness) seedPath(t *testing.T, id, matchPrefix string, direct bool, ca
 	for _, c := range caps {
 		capabilities = append(capabilities, shared.Capability(c))
 	}
-	p, err := processpath.Define(shared.PathId(id), matchPrefix, direct, capabilities, shared.DestinationLocationRoleUnset, base)
+	p, err := processpath.Define(shared.PathId(id), matchPrefix, direct, capabilities, shared.DestinationLocationRoleUnset, 2*time.Hour, shared.Eligibility{}, base)
 	if err != nil {
 		t.Fatalf("seedPath define: %v", err)
 	}
@@ -69,6 +69,9 @@ func TestGetProcessPath(t *testing.T) {
 	}
 	if out.Status != string(processpath.StatusActive) {
 		t.Fatalf("status = %q, want ACTIVE", out.Status)
+	}
+	if out.CycleTimeP95 != (2 * time.Hour).String() {
+		t.Fatalf("want cycleTimeP95 %s, got %q", (2 * time.Hour).String(), out.CycleTimeP95)
 	}
 }
 

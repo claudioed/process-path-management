@@ -35,6 +35,7 @@ const sidebars: SidebarsConfig = {
         'adr/0007-analytical-data-product',
         'adr/0008-fclm-aligned-process-path-families',
         'adr/0009-destination-location-role-on-process-path',
+        'adr/0010-fulfillment-capability-contract',
       ],
     },
   ],

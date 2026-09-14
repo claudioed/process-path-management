@@ -91,11 +91,13 @@ func run() error {
 	}
 
 	server := &inboundhttp.Server{
-		DefinePath:     &usecases.DefinePath{Repo: repo, Publisher: publisher, Clock: clock, UnitOfWork: persistence.uow, Metrics: pathMetrics},
-		RevisePath:     &usecases.RevisePath{Repo: repo, Publisher: publisher, Clock: clock, UnitOfWork: persistence.uow},
-		DeactivatePath: &usecases.DeactivatePath{Repo: repo, Publisher: publisher, Clock: clock, UnitOfWork: persistence.uow},
-		GetPath:        &usecases.GetPath{Repo: repo},
-		ListPaths:      &usecases.ListPaths{Repo: repo},
+		DefinePath:        &usecases.DefinePath{Repo: repo, Publisher: publisher, Clock: clock, UnitOfWork: persistence.uow, Metrics: pathMetrics},
+		RevisePath:        &usecases.RevisePath{Repo: repo, Publisher: publisher, Clock: clock, UnitOfWork: persistence.uow},
+		DeactivatePath:    &usecases.DeactivatePath{Repo: repo, Publisher: publisher, Clock: clock, UnitOfWork: persistence.uow},
+		GetPath:           &usecases.GetPath{Repo: repo},
+		ListPaths:         &usecases.ListPaths{Repo: repo},
+		DefineCPTSchedule: &usecases.DefineCPTSchedule{Repo: persistence.scheduleRepo, ProcessPathRepo: repo, Publisher: publisher, Clock: clock, UnitOfWork: persistence.uow},
+		GetCPTSchedule:    &usecases.GetCPTSchedule{Repo: persistence.scheduleRepo},
 	}
 
 	httpServer := &http.Server{
@@ -187,20 +189,28 @@ func serviceVersion() string {
 // and the UnitOfWork that brackets Save + Publish (nil when in-memory,
 // which the use cases treat as "run them back to back").
 type persistence struct {
-	repo  ports.ProcessPathRepo
-	pool  *pgxpool.Pool
-	uow   ports.UnitOfWork
-	close func()
+	repo         ports.ProcessPathRepo
+	scheduleRepo ports.CPTScheduleRepo
+	pool         *pgxpool.Pool
+	uow          ports.UnitOfWork
+	close        func()
 }
 
-// buildPersistence wires the outbound ProcessPathRepo. With no
-// DATABASE_URL set, the service runs fully functional against an
-// in-memory repo (no Postgres required for local dev / smoke tests) —
-// same fallback convention as every other service in this fleet.
+// buildPersistence wires the outbound ProcessPathRepo and CPTScheduleRepo
+// (ADR 0010) together, since they always share the same storage mode
+// (both in-memory, or both Postgres over the same pool) — there is no
+// scenario in this service where one is backed by Postgres and the other
+// is not. With no DATABASE_URL set, the service runs fully functional
+// against in-memory repos (no Postgres required for local dev / smoke
+// tests) — same fallback convention as every other service in this fleet.
 func buildPersistence(ctx context.Context, databaseURL, migrationsPath string, logger *slog.Logger) (*persistence, error) {
 	if databaseURL == "" {
-		logger.Info("DATABASE_URL not set, using in-memory ProcessPathRepo")
-		return &persistence{repo: memory.NewProcessPathRepo(), close: func() {}}, nil
+		logger.Info("DATABASE_URL not set, using in-memory ProcessPathRepo and CPTScheduleRepo")
+		return &persistence{
+			repo:         memory.NewProcessPathRepo(),
+			scheduleRepo: memory.NewCPTScheduleRepo(),
+			close:        func() {},
+		}, nil
 	}
 
 	if err := postgres.RunMigrations(databaseURL, migrationsPath); err != nil {
@@ -211,10 +221,11 @@ func buildPersistence(ctx context.Context, databaseURL, migrationsPath string, l
 		return nil, err
 	}
 	return &persistence{
-		repo:  postgres.NewProcessPathRepo(pool),
-		pool:  pool,
-		uow:   postgres.NewUnitOfWork(pool),
-		close: pool.Close,
+		repo:         postgres.NewProcessPathRepo(pool),
+		scheduleRepo: postgres.NewCPTScheduleRepo(pool),
+		pool:         pool,
+		uow:          postgres.NewUnitOfWork(pool),
+		close:        pool.Close,
 	}, nil
 }
 

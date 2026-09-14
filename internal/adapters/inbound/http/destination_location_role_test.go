@@ -14,7 +14,7 @@ import (
 // silently dropping an accepted request field.
 func TestDefinePath_WithDestinationLocationRole_IsEchoedInResponse(t *testing.T) {
 	router := newTestServer(t)
-	body := `{"pathId":"PACK","matchPrefix":"pack","direct":true,"requiredCapabilities":["pack"],"destinationLocationRole":"Drop"}`
+	body := `{"pathId":"PACK","matchPrefix":"pack","direct":true,"requiredCapabilities":["pack"],"destinationLocationRole":"Drop","cycleTimeP95":"2h"}`
 	req := httptest.NewRequest(http.MethodPost, "/process-paths", bytes.NewBufferString(body))
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -36,7 +36,7 @@ func TestDefinePath_WithDestinationLocationRole_IsEchoedInResponse(t *testing.T)
 // established before this feature existed.
 func TestDefinePath_NoDestinationLocationRole_OmitsFieldFromResponse(t *testing.T) {
 	router := newTestServer(t)
-	body := `{"pathId":"PICK","matchPrefix":"pick","direct":true,"requiredCapabilities":["pick"]}`
+	body := `{"pathId":"PICK","matchPrefix":"pick","direct":true,"requiredCapabilities":["pick"],"cycleTimeP95":"2h"}`
 	req := httptest.NewRequest(http.MethodPost, "/process-paths", bytes.NewBufferString(body))
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -78,7 +78,7 @@ func TestDefinePath_UnrecognizedDestinationLocationRole_Returns422(t *testing.T)
 // for Direct.
 func TestRevisePath_DoesNotAcceptOrAlterDestinationLocationRole(t *testing.T) {
 	router := newTestServer(t)
-	defineBody := `{"pathId":"PACK","matchPrefix":"pack","direct":true,"requiredCapabilities":["pack"],"destinationLocationRole":"WorkCenter"}`
+	defineBody := `{"pathId":"PACK","matchPrefix":"pack","direct":true,"requiredCapabilities":["pack"],"destinationLocationRole":"WorkCenter","cycleTimeP95":"2h"}`
 	defineReq := httptest.NewRequest(http.MethodPost, "/process-paths", bytes.NewBufferString(defineBody))
 	defineRR := httptest.NewRecorder()
 	router.ServeHTTP(defineRR, defineReq)
@@ -89,7 +89,7 @@ func TestRevisePath_DoesNotAcceptOrAlterDestinationLocationRole(t *testing.T) {
 	// The revise DTO has no destinationLocationRole field at all, so an
 	// attempt to sneak one in via extra JSON is simply ignored by the
 	// decoder -- the field remains WorkCenter regardless.
-	reviseBody := `{"matchPrefix":"pack-v2","requiredCapabilities":["pack"],"destinationLocationRole":"Shipping"}`
+	reviseBody := `{"matchPrefix":"pack-v2","requiredCapabilities":["pack"],"destinationLocationRole":"Shipping","cycleTimeP95":"2h"}`
 	reviseReq := httptest.NewRequest(http.MethodPut, "/process-paths/PACK", bytes.NewBufferString(reviseBody))
 	reviseRR := httptest.NewRecorder()
 	router.ServeHTTP(reviseRR, reviseReq)
