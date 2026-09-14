@@ -13,7 +13,7 @@ COVERAGE_THRESHOLD := 90
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build vet fmt fmt-check lint test coverage check check-all mutation
+.PHONY: help build vet fmt fmt-check lint test coverage bdd arch-test integration mutation mutation-fast api-lint vuln check check-all
 
 help:
 	@echo "process-path-management — local quality gate (targets mirror .github/workflows/ci.yml)"
@@ -29,10 +29,13 @@ help:
 	@echo "  bdd               go test ./... -run TestFeatures -v (godog/Gherkin)"
 	@echo "  arch-test         go test ./internal/architecture/... -v"
 	@echo "  integration       go test -tags=integration ./... -race -count=1 (needs DATABASE_URL)"
-	@echo "  mutation          gremlins unleash ./internal/domain (see .gremlins.yaml)"
+	@echo "  mutation-fast     gremlins unleash ./internal/domain — CI's blocking job (only ~11 mutants here, so full-domain IS the fast subset)"
+	@echo "  mutation          alias for mutation-fast (see .gremlins.yaml)"
+	@echo "  api-lint          Spectral lint on openapi.yaml and asyncapi.yaml"
+	@echo "  vuln              Known CVEs in the dependency graph and the Go stdlib"
 	@echo ""
 	@echo "  check             FAST bundle: fmt-check vet build lint test"
-	@echo "  check-all         check + coverage — run this before pushing"
+	@echo "  check-all         check + coverage + arch-test + bdd — run this before pushing"
 
 build:
 	$(GO) build ./...
@@ -87,11 +90,41 @@ integration:
 	$(GO) vet -tags=integration ./...
 	$(GO) test -tags=integration ./... -race -count=1
 
-mutation:
-	$(GO) run github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0 unleash ./internal/domain --workers 1 --timeout-coefficient 30
+mutation-fast:
+	@if ! command -v gremlins >/dev/null 2>&1; then \
+		echo "gremlins is not installed."; \
+		echo "install the version CI pins with:"; \
+		echo "  go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0"; \
+		exit 1; \
+	fi
+	gremlins unleash ./internal/domain --workers 1 --timeout-coefficient 30
+
+# Alias: CI's only mutation job is called mutation-fast (this repo's whole
+# domain is small enough — ~11 mutants — that the "fast" subset already IS
+# the full domain run, unlike bigger repos that split mutation-fast/mutation).
+mutation: mutation-fast
+
+api-lint:
+	@if ! command -v spectral >/dev/null 2>&1; then \
+		echo "spectral is not installed."; \
+		echo "install it with:"; \
+		echo "  npm install -g @stoplight/spectral-cli"; \
+		exit 1; \
+	fi
+	spectral lint apis/openapi.yaml --ruleset .spectral.yaml --fail-severity=warn
+	spectral lint apis/asyncapi.yaml --ruleset .spectral.asyncapi.yaml --fail-severity=warn
+
+vuln:
+	@if ! command -v govulncheck >/dev/null 2>&1; then \
+		echo "govulncheck is not installed."; \
+		echo "install it with:"; \
+		echo "  go install golang.org/x/vuln/cmd/govulncheck@latest"; \
+		exit 1; \
+	fi
+	govulncheck ./...
 
 # The fast self-correction loop: run this after every change, before committing.
 check: fmt-check vet build lint test
 
 # The fuller gate a human runs before pushing.
-check-all: check coverage
+check-all: check coverage arch-test bdd
