@@ -27,14 +27,28 @@ info:
     }
     ```
 
-    ## Single, shared topic for three event types
+    ## Single, shared topic for four event types
 
     A single topic (not one per event type) matches the fleet's existing
     convention (e.g. `warehouse.fulfillment.events` carries several event
-    types, filtered by consumers on `event_type`). Every message on this
-    topic is keyed by `path_id`, so a consumer replaying the topic sees a
-    given path's Created/Updated/Deactivated events in publish order,
-    never interleaved with another path's out of order.
+    types, filtered by consumers on `event_type`). `ProcessPathCreated`,
+    `ProcessPathUpdated`, and `ProcessPathDeactivated` are keyed by
+    `path_id`; `CPTScheduleChanged` (ADR 0010) is keyed by `site_id` — a
+    different aggregate on the same topic, so a consumer replaying the
+    topic sees a given path's or a given site's events in publish order,
+    never interleaved with another aggregate's out of order.
+
+    ## ADR 0010: the fulfillment capability contract
+
+    `ProcessPathCreated`/`ProcessPathUpdated` gained two additive fields —
+    `cycle_time_p95` (the operator-declared p95 end-to-end cycle time) and
+    `eligibility` (the rules a unit of work must satisfy to be routed to
+    this path) — and this topic now also carries `CPTScheduleChanged`, a
+    new event type for the site-scoped Critical Pull Time schedule. Every
+    consumer's decoder must tolerate an unknown `event_type` (ignore it,
+    not fail) and tolerate unknown/absent fields on the payloads it
+    already knows, exactly as it already must for any future addition —
+    see ADR 0010's Consequences section.
 
     ## Known integration gap: no consumer wired yet
 
@@ -60,6 +74,8 @@ tags:
     description: The Process Path Management bounded context (Generic Subdomain).
   - name: process-path
     description: Events describing the ProcessPath aggregate lifecycle.
+  - name: cpt-schedule
+    description: Events describing the site-scoped CPTSchedule aggregate (ADR 0010).
 
 servers:
   production:
@@ -76,25 +92,29 @@ channels:
   warehouse.process-path-management.events:
     description: >-
       This service's own topic (its `kafka.Topic` constant). Carries all
-      three ProcessPath* event types, filtered by consumers on
-      `event_type`. Only published when EVENT_PUBLISHER=kafka; the default
-      is a local log publisher (no Kafka required for local dev).
+      three ProcessPath* event types plus CPTScheduleChanged (ADR 0010),
+      filtered by consumers on `event_type`. Only published when
+      EVENT_PUBLISHER=kafka; the default is a local log publisher (no
+      Kafka required for local dev).
     publish:
       operationId: publishProcessPathEvents
-      summary: Publish ProcessPathCreated / ProcessPathUpdated / ProcessPathDeactivated.
+      summary: Publish ProcessPathCreated / ProcessPathUpdated / ProcessPathDeactivated / CPTScheduleChanged.
       description: >-
         One message per domain event raised by the DefinePath, RevisePath,
-        and DeactivatePath use cases. A no-op revision (RevisePath with no
-        actual change) and a no-op deactivation (already-deactivated path)
-        raise nothing — consumers never have to diff two identical
-        payloads to notice nothing changed.
+        DeactivatePath, and DefineCPTSchedule use cases. A no-op revision
+        (RevisePath or DefineCPTSchedule with no actual change) and a
+        no-op deactivation (already-deactivated path) raise nothing —
+        consumers never have to diff two identical payloads to notice
+        nothing changed.
       tags:
         - name: process-path
+        - name: cpt-schedule
       message:
         oneOf:
           - $ref: "#/components/messages/ProcessPathCreated"
           - $ref: "#/components/messages/ProcessPathUpdated"
           - $ref: "#/components/messages/ProcessPathDeactivated"
+          - $ref: "#/components/messages/CPTScheduleChanged"
 
 components:
   messages:
@@ -124,11 +144,47 @@ components:
               match_prefix: pick
               direct: true
               required_capabilities: ["pick"]
+              cycle_time_p95: 24h0m0s
+        - name: packPathDefinedWithDestinationLocationRole
+          summary: A new PACK path defined with a declared Drop destination role.
+          payload:
+            event_id: 6a2d3b8f-0e42-4b7c-9f1d-7c3e2f6b8a91
+            event_type: ProcessPathCreated
+            occurred_at: "2026-09-13T00:00:00Z"
+            source: process-path-management
+            data:
+              path_id: PACK
+              match_prefix: pack
+              direct: true
+              required_capabilities: ["pack"]
+              destination_location_role: Drop
+              cycle_time_p95: 6h0m0s
+        - name: singlesPathDefinedWithEligibility
+          summary: >-
+            A new SINGLES path with a narrowed eligibility (ADR 0010):
+            at most one unit per line, gift-wrap required, hazmat
+            excluded, non-sortable.
+          payload:
+            event_id: 9c4e5f21-7a83-4d5f-b1c2-8e5a3f7d2b64
+            event_type: ProcessPathCreated
+            occurred_at: "2026-09-13T00:00:00Z"
+            source: process-path-management
+            data:
+              path_id: SINGLES
+              match_prefix: singles
+              direct: true
+              required_capabilities: ["pick"]
+              cycle_time_p95: 1h30m0s
+              eligibility:
+                max_units_per_line: 1
+                required_product_attributes: ["giftWrap"]
+                excluded_product_attributes: ["hazmat"]
+                non_sortable: true
 
     ProcessPathUpdated:
       name: ProcessPathUpdated
       title: Process Path Updated
-      summary: An Active path's matchPrefix or requiredCapabilities was revised.
+      summary: An Active path's matchPrefix, requiredCapabilities, cycleTimeP95, or eligibility was revised.
       description: >-
         Raised when RevisePath actually changes something. Not raised for
         a no-op update.
@@ -150,6 +206,7 @@ components:
               match_prefix: pick-zone-a
               direct: true
               required_capabilities: ["pick", "hazmat"]
+              cycle_time_p95: 24h0m0s
 
     ProcessPathDeactivated:
       name: ProcessPathDeactivated
@@ -177,6 +234,41 @@ components:
             source: process-path-management
             data:
               path_id: PACK
+
+    CPTScheduleChanged:
+      name: CPTScheduleChanged
+      title: CPT Schedule Changed
+      summary: A site's Critical Pull Time (CPT) schedule was defined or revised.
+      description: >-
+        Raised by DefineCPTSchedule whenever a schedule is first defined
+        or a subsequent revision actually changes something (ADR 0010).
+        Carries the FULL schedule — a snapshot, not a diff — so a fresh
+        consumer replaying from FirstOffset needs no prior state to build
+        its read model, the same self-sufficient-event convention
+        ProcessPathCreated/Updated already use. Keyed by `site_id`, not
+        `path_id` — a different aggregate sharing this topic.
+      contentType: application/json
+      tags:
+        - name: cpt-schedule
+      payload:
+        $ref: "#/components/schemas/CPTScheduleChangedEnvelope"
+      examples:
+        - name: sp1ScheduleDefined
+          summary: Site sp1's schedule defined with one 15:00 ground cutoff.
+          payload:
+            event_id: 1d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a
+            event_type: CPTScheduleChanged
+            occurred_at: "2026-09-13T00:00:00Z"
+            source: process-path-management
+            data:
+              site_id: sp1
+              timezone: America/Sao_Paulo
+              cutoffs:
+                - cpt_id: sp1-1500
+                  local_time: "15:00"
+                  days_of_week: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+                  ship_method: ground
+                  eligible_path_ids: ["PICK", "PACK"]
 
   schemas:
     ProcessPathCreatedEnvelope:
@@ -244,10 +336,30 @@ components:
               type: string
               example: PACK
               description: >-
-                required_capabilities/match_prefix/direct are omitted (not
-                empty-arrayed) on a deactivation — it carries no
-                definition data, only the PathId and the fact that it
-                happened.
+                required_capabilities/match_prefix/direct/cycle_time_p95/
+                eligibility are omitted (not empty-arrayed/zeroed) on a
+                deactivation — it carries no definition data, only the
+                PathId and the fact that it happened.
+
+    CPTScheduleChangedEnvelope:
+      type: object
+      title: Envelope + CPTScheduleChanged data
+      required: [event_id, event_type, occurred_at, source, data]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          enum: ["CPTScheduleChanged"]
+        occurred_at:
+          type: string
+          format: date-time
+        source:
+          type: string
+          enum: ["process-path-management"]
+        data:
+          $ref: "#/components/schemas/CPTScheduleData"
 
     ProcessPathData:
       type: object
@@ -272,3 +384,102 @@ components:
           items:
             type: string
           example: ["pick"]
+        destination_location_role:
+          type: string
+          description: >-
+            Optional declaration of what kind of facility-layout
+            LocationRole this path's completed work is destined for
+            (ADR 0006). Omitted entirely (not empty-stringed) when no
+            destination role was declared for this path — the default,
+            most common case.
+          enum: ["Drop", "WorkCenter", "Shipping"]
+          example: Drop
+        cycle_time_p95:
+          type: string
+          description: >-
+            The operator-declared p95 end-to-end cycle time from release
+            into the path to manifest (ADR 0010). Encoded as a Go
+            duration string (e.g. "2h0m0s").
+          example: "24h0m0s"
+        eligibility:
+          $ref: "#/components/schemas/EligibilityData"
+
+    EligibilityData:
+      type: object
+      description: >-
+        Rules a unit of work must satisfy to be routed to this path (ADR
+        0010). Every field is omitted (not zero-valued) when unset; a
+        fully permissive eligibility still appears as an empty object
+        `{}`, never an absent field.
+      properties:
+        max_units_per_line:
+          type: integer
+          description: Omitted means unbounded; 1 is how a singles path is declared.
+          example: 1
+        required_product_attributes:
+          type: array
+          items:
+            type: string
+          example: ["giftWrap"]
+        excluded_product_attributes:
+          type: array
+          items:
+            type: string
+          example: ["hazmat"]
+        non_sortable:
+          type: boolean
+          example: true
+
+    CPTScheduleData:
+      type: object
+      required: [site_id, timezone, cutoffs]
+      properties:
+        site_id:
+          type: string
+          description: >-
+            The fulfillment site this schedule belongs to. Uses
+            facility-layout's site identifier vocabulary but is not
+            validated against it (this service has zero inbound
+            dependency, ADR 0001).
+          example: sp1
+        timezone:
+          type: string
+          description: IANA zone, e.g. America/Sao_Paulo.
+          example: America/Sao_Paulo
+        cutoffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/CutoffData"
+
+    CutoffData:
+      type: object
+      required: [cpt_id, local_time, days_of_week, ship_method, eligible_path_ids]
+      properties:
+        cpt_id:
+          type: string
+          description: Stable id, unique within the site.
+          example: sp1-1500
+        local_time:
+          type: string
+          description: Recurring daily cutoff, "HH:MM" 24-hour form.
+          example: "15:00"
+        days_of_week:
+          type: array
+          items:
+            type: string
+            enum: [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+          example: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+        ship_method:
+          type: string
+          description: Free-form label ("ground", "same-day"); no carrier integration exists in this fleet.
+          example: ground
+        eligible_path_ids:
+          type: array
+          items:
+            type: string
+          description: >-
+            The path families that can make this cutoff. Consumers
+            compute the next concrete occurrence of a cutoff themselves
+            from (local_time, days_of_week, timezone) — this service
+            never publishes absolute timestamps for a recurring rule.
+          example: ["PICK", "PACK"]

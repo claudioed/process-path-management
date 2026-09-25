@@ -2,6 +2,7 @@ package usecases
 
 import (
 	"context"
+	"time"
 
 	"github.com/claudioed/process-path-management/internal/application/ports"
 	"github.com/claudioed/process-path-management/internal/domain/processpath"
@@ -9,10 +10,11 @@ import (
 )
 
 // RevisePath updates an existing Active path's matchPrefix/
-// requiredCapabilities and publishes ProcessPathUpdated -- but ONLY if
-// the revision actually changes something (see ProcessPath.Revise's
-// changed return value). A no-op revision request is a successful no-op,
-// not an error and not a spuriously republished event.
+// requiredCapabilities/cycleTimeP95/eligibility and publishes
+// ProcessPathUpdated -- but ONLY if the revision actually changes
+// something (see ProcessPath.Revise's changed return value). A no-op
+// revision request is a successful no-op, not an error and not a
+// spuriously republished event.
 type RevisePath struct {
 	Repo      ports.ProcessPathRepo
 	Publisher ports.EventPublisher
@@ -22,7 +24,7 @@ type RevisePath struct {
 	UnitOfWork ports.UnitOfWork
 }
 
-func (uc *RevisePath) Execute(ctx context.Context, id shared.PathId, matchPrefix string, requiredCapabilities []shared.Capability) (*processpath.ProcessPath, error) {
+func (uc *RevisePath) Execute(ctx context.Context, id shared.PathId, matchPrefix string, requiredCapabilities []shared.Capability, cycleTimeP95 time.Duration, eligibility shared.Eligibility) (*processpath.ProcessPath, error) {
 	p, err := uc.Repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -32,7 +34,7 @@ func (uc *RevisePath) Execute(ctx context.Context, id shared.PathId, matchPrefix
 	}
 
 	now := uc.Clock.Now()
-	changed, err := p.Revise(matchPrefix, requiredCapabilities, now)
+	changed, err := p.Revise(matchPrefix, requiredCapabilities, cycleTimeP95, eligibility, now)
 	if err != nil {
 		return nil, err
 	}
@@ -44,11 +46,14 @@ func (uc *RevisePath) Execute(ctx context.Context, id shared.PathId, matchPrefix
 			return err
 		}
 		return uc.Publisher.Publish(ctx, shared.ProcessPathUpdated{
-			PathId:               p.ID(),
-			MatchPrefix:          p.MatchPrefix(),
-			Direct:               p.Direct(),
-			RequiredCapabilities: p.RequiredCapabilities(),
-			At:                   now,
+			PathId:                  p.ID(),
+			MatchPrefix:             p.MatchPrefix(),
+			Direct:                  p.Direct(),
+			RequiredCapabilities:    p.RequiredCapabilities(),
+			DestinationLocationRole: p.DestinationLocationRole(),
+			CycleTimeP95:            p.CycleTimeP95(),
+			Eligibility:             p.Eligibility(),
+			At:                      now,
 		})
 	})
 	if err != nil {

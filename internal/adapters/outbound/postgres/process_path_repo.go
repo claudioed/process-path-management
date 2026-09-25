@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/claudioed/process-path-management/internal/domain/processpath"
@@ -16,7 +17,12 @@ import (
 // ports.ProcessPathRepo. RequiredCapabilities is stored as a Postgres
 // text[] column — a real array type, not a serialized JSON blob, so it
 // stays queryable (e.g. "which paths require hazmat") without a JSON
-// operator.
+// operator. Eligibility (ADR 0010) is stored as jsonb: unlike
+// requiredCapabilities it is a small, cohesive value object always
+// read/written as a whole, never queried by an individual field, so a
+// JSON column is the more direct fit — matching cpt_schedule_cutoffs'
+// own eligible_path_ids array choice for the analogous reasoning in the
+// other direction.
 type ProcessPathRepo struct {
 	pool *pgxpool.Pool
 }
@@ -28,20 +34,22 @@ func NewProcessPathRepo(pool *pgxpool.Pool) *ProcessPathRepo {
 
 func (r *ProcessPathRepo) Save(ctx context.Context, p *processpath.ProcessPath) error {
 	_, err := querierFrom(ctx, r.pool).Exec(ctx, `
-		INSERT INTO process_paths (id, match_prefix, direct, required_capabilities, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO process_paths (id, match_prefix, direct, required_capabilities, destination_location_role, cycle_time_p95, eligibility, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (id) DO UPDATE
 		  SET match_prefix          = EXCLUDED.match_prefix,
 		      required_capabilities = EXCLUDED.required_capabilities,
+		      cycle_time_p95        = EXCLUDED.cycle_time_p95,
+		      eligibility           = EXCLUDED.eligibility,
 		      status                = EXCLUDED.status,
 		      updated_at            = EXCLUDED.updated_at
-	`, string(p.ID()), p.MatchPrefix(), p.Direct(), capabilitiesToStrings(p.RequiredCapabilities()), string(p.Status()), p.CreatedAt(), p.UpdatedAt())
+	`, string(p.ID()), p.MatchPrefix(), p.Direct(), capabilitiesToStrings(p.RequiredCapabilities()), destinationLocationRoleToColumn(p.DestinationLocationRole()), durationToInterval(p.CycleTimeP95()), eligibilityToRow(p.Eligibility()), string(p.Status()), p.CreatedAt(), p.UpdatedAt())
 	return err
 }
 
 func (r *ProcessPathRepo) FindByID(ctx context.Context, id shared.PathId) (*processpath.ProcessPath, error) {
 	row := querierFrom(ctx, r.pool).QueryRow(ctx, `
-		SELECT id, match_prefix, direct, required_capabilities, status, created_at, updated_at
+		SELECT id, match_prefix, direct, required_capabilities, destination_location_role, cycle_time_p95, eligibility, status, created_at, updated_at
 		FROM process_paths
 		WHERE id = $1
 	`, string(id))
@@ -50,7 +58,7 @@ func (r *ProcessPathRepo) FindByID(ctx context.Context, id shared.PathId) (*proc
 
 func (r *ProcessPathRepo) ListActive(ctx context.Context) ([]*processpath.ProcessPath, error) {
 	return r.list(ctx, `
-		SELECT id, match_prefix, direct, required_capabilities, status, created_at, updated_at
+		SELECT id, match_prefix, direct, required_capabilities, destination_location_role, cycle_time_p95, eligibility, status, created_at, updated_at
 		FROM process_paths
 		WHERE status = 'ACTIVE'
 		ORDER BY id
@@ -59,7 +67,7 @@ func (r *ProcessPathRepo) ListActive(ctx context.Context) ([]*processpath.Proces
 
 func (r *ProcessPathRepo) ListAll(ctx context.Context) ([]*processpath.ProcessPath, error) {
 	return r.list(ctx, `
-		SELECT id, match_prefix, direct, required_capabilities, status, created_at, updated_at
+		SELECT id, match_prefix, direct, required_capabilities, destination_location_role, cycle_time_p95, eligibility, status, created_at, updated_at
 		FROM process_paths
 		ORDER BY id
 	`)
@@ -85,14 +93,17 @@ func (r *ProcessPathRepo) list(ctx context.Context, query string) ([]*processpat
 
 func scanProcessPath(row pgx.Row) (*processpath.ProcessPath, error) {
 	var (
-		id                   string
-		matchPrefix          string
-		direct               bool
-		requiredCapabilities []string
-		status               string
-		createdAt, updatedAt time.Time
+		id                      string
+		matchPrefix             string
+		direct                  bool
+		requiredCapabilities    []string
+		destinationLocationRole *string
+		cycleTimeP95            pgtype.Interval
+		eligibility             eligibilityRow
+		status                  string
+		createdAt, updatedAt    time.Time
 	)
-	err := row.Scan(&id, &matchPrefix, &direct, &requiredCapabilities, &status, &createdAt, &updatedAt)
+	err := row.Scan(&id, &matchPrefix, &direct, &requiredCapabilities, &destinationLocationRole, &cycleTimeP95, &eligibility, &status, &createdAt, &updatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -104,10 +115,35 @@ func scanProcessPath(row pgx.Row) (*processpath.ProcessPath, error) {
 		matchPrefix,
 		direct,
 		stringsToCapabilities(requiredCapabilities),
+		destinationLocationRoleFromColumn(destinationLocationRole),
+		intervalToDuration(cycleTimeP95),
+		eligibility.toDomain(),
 		processpath.Status(status),
 		createdAt,
 		updatedAt,
 	), nil
+}
+
+// destinationLocationRoleToColumn maps the domain's
+// shared.DestinationLocationRoleUnset (empty string) to a real SQL NULL,
+// not the empty-string value, so the column reads as "not declared"
+// rather than an empty-but-present value.
+func destinationLocationRoleToColumn(role shared.DestinationLocationRole) *string {
+	if role == shared.DestinationLocationRoleUnset {
+		return nil
+	}
+	v := string(role)
+	return &v
+}
+
+// destinationLocationRoleFromColumn is the inverse of
+// destinationLocationRoleToColumn: a NULL column value rehydrates to
+// shared.DestinationLocationRoleUnset.
+func destinationLocationRoleFromColumn(v *string) shared.DestinationLocationRole {
+	if v == nil {
+		return shared.DestinationLocationRoleUnset
+	}
+	return shared.DestinationLocationRole(*v)
 }
 
 func capabilitiesToStrings(caps []shared.Capability) []string {
@@ -124,4 +160,52 @@ func stringsToCapabilities(ss []string) []shared.Capability {
 		out[i] = shared.Capability(s)
 	}
 	return out
+}
+
+// durationToInterval converts a time.Duration into the Postgres INTERVAL
+// wire form. This service only ever writes a duration it built itself
+// (never a days/months-granularity value from elsewhere), so the whole
+// value is carried in Microseconds and Days/Months are left zero —
+// avoiding any lossy day/month normalization on the round trip.
+func durationToInterval(d time.Duration) pgtype.Interval {
+	return pgtype.Interval{Microseconds: int64(d / time.Microsecond), Valid: true}
+}
+
+// intervalToDuration is the inverse of durationToInterval. Days/Months
+// are folded in using fixed 24h/30-day conversions in case a value ever
+// arrives with those components populated (e.g. hand-edited via psql) —
+// this service itself never writes them, but a read path should not
+// silently drop data it did not write.
+func intervalToDuration(iv pgtype.Interval) time.Duration {
+	if !iv.Valid {
+		return 0
+	}
+	d := time.Duration(iv.Microseconds) * time.Microsecond
+	d += time.Duration(iv.Days) * 24 * time.Hour
+	d += time.Duration(iv.Months) * 30 * 24 * time.Hour
+	return d
+}
+
+// eligibilityRow is the jsonb wire shape for shared.Eligibility. Kept as
+// its own type (not shared.Eligibility itself, which has unexported
+// fields) — the same boundary-DTO discipline the HTTP adapter's dto.go
+// already documents ("domain structs never cross this boundary").
+type eligibilityRow struct {
+	MaxUnitsPerLine           *int     `json:"maxUnitsPerLine,omitempty"`
+	RequiredProductAttributes []string `json:"requiredProductAttributes,omitempty"`
+	ExcludedProductAttributes []string `json:"excludedProductAttributes,omitempty"`
+	NonSortable               bool     `json:"nonSortable,omitempty"`
+}
+
+func eligibilityToRow(e shared.Eligibility) eligibilityRow {
+	return eligibilityRow{
+		MaxUnitsPerLine:           e.MaxUnitsPerLine(),
+		RequiredProductAttributes: e.RequiredProductAttributes(),
+		ExcludedProductAttributes: e.ExcludedProductAttributes(),
+		NonSortable:               e.NonSortable(),
+	}
+}
+
+func (r eligibilityRow) toDomain() shared.Eligibility {
+	return shared.NewEligibility(r.MaxUnitsPerLine, r.RequiredProductAttributes, r.ExcludedProductAttributes, r.NonSortable)
 }

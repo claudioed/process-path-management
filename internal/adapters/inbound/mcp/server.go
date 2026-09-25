@@ -1,0 +1,30 @@
+package mcp
+
+import (
+	"net/http"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// NewServer builds the MCP server for this bounded context with its
+// read-only tools registered.
+func NewServer(deps Deps) *mcp.Server {
+	server := mcp.NewServer(
+		&mcp.Implementation{Name: "process-path-management-mcp", Version: "1.0.0"},
+		&mcp.ServerOptions{
+			Instructions: "Read-only access to the process-path-management catalogue: a path's canonical identity, its matchPrefix routing rule, whether it is direct, and the capabilities required to work it. This is the fleet's Open Host Service / published-language source for process paths.",
+		},
+	)
+
+	deps.registerTools(server)
+
+	return server
+}
+
+// Handler returns the Streamable HTTP handler for the MCP server. Per
+// the fleet's current convention (the static-bearer auth layer was
+// removed fleet-wide, see this repo's ADR 0005), the server is mounted
+// unauthenticated.
+func Handler(server *mcp.Server) http.Handler {
+	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
+}
