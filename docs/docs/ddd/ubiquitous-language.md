@@ -1,15 +1,17 @@
 ---
 title: Ubiquitous Language
 sidebar_label: Ubiquitous Language
-description: ProcessPath, PathId, Capability, MatchPrefix, Direct, Status — pulled from the domain code's own doc comments.
+description: ProcessPath, PathId, Capability, MatchPrefix, Direct, DestinationLocationRole, CycleTimeP95, Eligibility, Status, CPTSchedule — pulled from the domain code's own doc comments.
 ---
 
 # Ubiquitous Language
 
 The definitions below are pulled directly from
-`internal/domain/processpath/process_path.go` and
-`internal/domain/shared/shared.go`'s own doc comments — not reinvented for
-this page.
+`internal/domain/processpath/process_path.go`,
+`internal/domain/cptschedule/cpt_schedule.go`,
+`internal/domain/shared/shared.go` and
+`internal/domain/shared/eligibility.go`'s own doc comments — not
+reinvented for this page.
 
 ## ProcessPath
 
@@ -72,6 +74,48 @@ rejecting every real caller-supplied value in production.
 A structural fact about the path's routing shape (reserved for a future
 multi-hop topology, not a day-to-day operational parameter). Immutable once
 set at `Define` time — never revisable via `Revise`.
+
+## DestinationLocationRole
+
+An **optional** declaration of which facility-layout `LocationRole` a
+completed task on this path is destined for: `Drop`, `WorkCenter` or
+`Shipping`, or unset (the zero value, valid for most paths). It is
+declarative routing intent only — this service never calls
+facility-layout to validate it; the closed value set is kept in sync by
+convention. Immutable once set at `Define` time, like `Direct`. See
+[ADR 0009](/docs/adr/0009-destination-location-role-on-process-path).
+
+## CycleTimeP95
+
+> The operator-declared p95 end-to-end cycle time from release into the
+> path to manifest (ADR 0010) — a declared standard, not a measured value.
+
+Required and strictly positive (`ErrInvalidCycleTime` otherwise), revisable
+while Active. On the wire it is a Go duration string (`"2h0m0s"`), so its
+unit is unambiguous. See
+[ADR 0010](/docs/adr/0010-fulfillment-capability-contract).
+
+## Eligibility
+
+A value object declaring the rules a unit of work must satisfy to be
+routed to a path: `maxUnitsPerLine` (unset means unbounded; `1` declares a
+singles path), `requiredProductAttributes`, `excludedProductAttributes`,
+and `nonSortable`. Every field is optional and the empty value is fully
+permissive. Product attributes are carried as plain strings; this service
+does not own that vocabulary. Revisable while Active.
+
+## CPTSchedule, Cutoff, SiteId
+
+> A site-scoped, recurring Critical Pull Time (CPT) schedule. A CPT is a
+> property of a departure, not of a path — several paths feed the same
+> truck, and a slow path simply cannot make the later ones — so the
+> schedule is modelled once per site rather than duplicated on every path.
+
+The second aggregate root, identified by `SiteId` (facility-layout's site
+vocabulary, not validated against it). It holds an IANA `timezone` and one
+or more **Cutoffs**, each with a `cptId` (unique within the schedule), a
+`localTime` (`HH:MM`), `daysOfWeek` (`Mon`..`Sun`), a `shipMethod`, and the
+`eligiblePathIds` that can make it. Revised wholesale, never partially.
 
 ## Status (Active / Deactivated)
 

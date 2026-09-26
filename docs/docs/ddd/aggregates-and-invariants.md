@@ -1,7 +1,7 @@
 ---
 title: Aggregates and Invariants
 sidebar_label: Aggregates and Invariants
-description: The ProcessPath aggregate and its three invariants — non-empty lower-case matchPrefix, non-empty requiredCapabilities, deactivation is terminal/idempotent.
+description: The ProcessPath and CPTSchedule aggregates and their invariants — lower-case matchPrefix, non-empty requiredCapabilities, positive cycleTimeP95, terminal/idempotent deactivation, and per-site CPT cutoffs that reference Active paths.
 ---
 
 # Aggregates and Invariants
@@ -25,15 +25,20 @@ should be the single source of truth for what a path IS.
 | `fulfillment-execution` | Core | The Pick/Pack/SLAM task lifecycle; throughput and accuracy at scale. |
 | `wes-work-planning` | Core | The conductor — waveless release and flow balance. |
 | `workforce-management` | Supporting | Labor & workforce allocation. |
+| `order-management` | Core | Order intake, allocation, and the customer promise. |
 | `labor-performance` | Supporting | Actual-vs-standard performance scoring. |
 | `facility-layout` | Generic | Physical warehouse structure, extracted once rather than duplicated. |
-| **`process-path-management`** | **Generic** | **The process-path catalogue — extracted once rather than duplicated across three consumers.** |
+| **`process-path-management`** | **Generic** | **The process-path catalogue — extracted once rather than duplicated across its consumers.** |
 
 ## The ProcessPath aggregate
 
-The single aggregate root in this domain. Fields: `PathId` (immutable
-identity), `MatchPrefix` (revisable), `Direct` (immutable), `RequiredCapabilities`
-(revisable), `Status` (Active/Deactivated), `CreatedAt`/`UpdatedAt`.
+The first of this domain's two aggregate roots. Fields: `PathId`
+(immutable identity), `MatchPrefix` (revisable), `Direct` (immutable),
+`RequiredCapabilities` (revisable), `DestinationLocationRole` (optional,
+immutable — [ADR 0009](/docs/adr/0009-destination-location-role-on-process-path)),
+`CycleTimeP95` and `Eligibility` (revisable —
+[ADR 0010](/docs/adr/0010-fulfillment-capability-contract)), `Status`
+(Active/Deactivated), `CreatedAt`/`UpdatedAt`.
 
 ### Invariant 1 — non-empty, lower-case matchPrefix
 
@@ -61,7 +66,16 @@ real path (PICK, PACK, SLAM, REBIN) requires at least the capability named
 after itself. Enforced by the same shared `validate` function as Invariant
 1, at both `Define` and `Revise` time.
 
-### Invariant 3 — deactivation is terminal and idempotent
+### Invariant 3 — positive cycleTimeP95, recognised destination role
+
+The same shared `validate` function also rejects a `CycleTimeP95` that is
+not strictly positive (`ErrInvalidCycleTime`) and a non-empty
+`DestinationLocationRole` outside `Drop`/`WorkCenter`/`Shipping`
+(`shared.ErrInvalidDestinationLocationRole`). `Eligibility` has no
+invariant of its own: every combination, including the empty value, is a
+valid declaration.
+
+### Invariant 4 — deactivation is terminal and idempotent
 
 Once a `ProcessPath` transitions to `Deactivated`, it is a closed historical
 record:
@@ -101,7 +115,35 @@ anything already in flight.
 ## Revision is a real no-op, not a spurious event
 
 `Revise` returns a `changed` boolean. When the caller's request is
-byte-for-byte identical to the path's current `MatchPrefix` and
-`RequiredCapabilities`, `changed` is `false` and `RevisePath`'s use case
-does not republish `ProcessPathUpdated` — consumers never have to diff two
-identical payloads to notice nothing changed.
+identical to the path's current `MatchPrefix`, `RequiredCapabilities`,
+`CycleTimeP95` and `Eligibility`, `changed` is `false` and `RevisePath`'s
+use case does not republish `ProcessPathUpdated` — consumers never have to
+diff two identical payloads to notice nothing changed.
+
+## The CPTSchedule aggregate
+
+The second aggregate root, one per site (identity `SiteId`), introduced by
+[ADR 0010](/docs/adr/0010-fulfillment-capability-contract). Fields:
+`Timezone` (IANA zone), `Cutoffs`, `CreatedAt`/`UpdatedAt`. Each `Cutoff`
+entity carries `cptId`, `localTime`, `daysOfWeek`, `shipMethod` and
+`eligiblePathIds`.
+
+Invariants enforced in the domain (`internal/domain/cptschedule`):
+
+- `timezone` is non-empty and a recognised IANA zone
+  (`ErrEmptyTimezone`, `ErrInvalidTimezone`).
+- At least one cutoff (`ErrNoCutoffs`), and `cptId` is unique within the
+  schedule (`ErrDuplicateCptId`).
+- Each cutoff has a non-empty `cptId`, an `HH:MM` 24-hour `localTime`,
+  non-empty `daysOfWeek` drawn from `Mon`..`Sun`, a non-empty
+  `shipMethod`, and non-empty `eligiblePathIds`.
+
+One cross-aggregate invariant lives in the `DefineCPTSchedule` use case,
+not the domain, because it needs the `ProcessPathRepo`: every
+`eligiblePathIds` entry must reference an **Active** process path in this
+service's own store (`ErrIneligiblePathId`, 422).
+
+A schedule is revised **wholesale** (`PUT /sites/{siteId}/cpt-schedule`
+replaces timezone and cutoffs together). `Revise` returns `changed`; an
+identical re-submission raises nothing, and a real change publishes a
+`CPTScheduleChanged` carrying the full schedule snapshot.

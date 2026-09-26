@@ -15,7 +15,8 @@ description: "ADR 0004 — this context adopts the fleet-wide decision recorded 
 
 ## Status
 
-Accepted — 2026-09-07. Adopts the fleet-wide decision in
+Superseded by [ADR 0005](0005-remove-rest-auth.md) (2026-09-09).
+Originally accepted 2026-09-07. Adopts the fleet-wide decision in
 [warehouse-ops-agent ADR 0005 — Fleet REST identity: static bearer keys
 with read/read-write scopes, no IdP](https://github.com/claudioed/warehouse-ops-agent/blob/develop/docs/docs/adr/0005-rest-identity-static-bearer-scopes.md).
 Context, alternatives and consequences are recorded there and not repeated

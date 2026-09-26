@@ -38,13 +38,12 @@ first-ever mutation run found 11 mutants total (all in
 `internal/domain/processpath`, the only aggregate in the domain layer at
 the time) with ALL killed — zero survivors, zero not-covered, 100%
 efficacy and mutator coverage. `99` locks that in and fails the build the
-moment a single mutant survives. If you add a second domain package
-(this repo also has `internal/domain/cptschedule` and
-`internal/domain/shared` now — check `.gremlins.yaml`'s comment date
-against the current domain tree before assuming the 11-mutant baseline
-is still current) and it introduces a survivor, you may need to
-re-baseline the threshold in the SAME PR with a dated comment explaining
-why — never silently.
+moment a single mutant survives. The domain tree has since grown to
+`processpath`, `cptschedule` and `shared`; re-measured 2026-09-25 it is
+**63 mutants, all killed** (100% efficacy and mutator coverage), so the
+threshold still holds. If a new domain package introduces a survivor, you
+may need to re-baseline the threshold in the SAME PR with a dated comment
+explaining why — never silently.
 
 CI enforces this as `mutation-fast`, scoped to `./internal/domain` (the
 entire domain layer, since there's no second aggregate to split a "fast
