@@ -21,7 +21,8 @@ promise engine offers a date only if some path inside the building can
 carry the order to a truck that leaves before that date; the process
 path selection then constrains routing so the committed orders actually
 fit. The coupling point is the Critical Pull Time (CPT): the last moment
-a package can be manifested and still make a given departure. Amazon's
+a package can be manifested and still make a given departure. A major
+e-commerce retailer's
 process-path model publishes, per building, which paths exist, how long
 each takes end to end, what each may carry, and which CPTs each can hit;
 the promise is derived from that, never guessed independently of it.
@@ -54,7 +55,7 @@ This fleet has the skeleton of that coupling but not the substance:
   about the work it accepts, not only the capabilities a worker must
   hold.
 
-The consequence is exactly the failure mode the Amazon model exists to
+The consequence is exactly the failure mode the reference model exists to
 prevent: the building absorbs the promise error as missed CPTs, and
 nothing measures it. Fixing it requires one context to own and publish
 the static half of path capability. This service is the fleet's Open
