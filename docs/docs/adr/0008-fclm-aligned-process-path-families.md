@@ -3,7 +3,7 @@ id: 0008-fclm-aligned-process-path-families
 slug: /adr/0008-fclm-aligned-process-path-families
 title: 0008. Seven new process-path families aligned to real FC labor-tracking vocabulary
 sidebar_label: 0008. FCLM-aligned path families
-description: ADR 0008 — PREP, PROBLEM_SOLVE, WATER_SPIDER, AMNESTY, RETURNS, TRANSFER, and DAMAGE join PICK/PACK/REBIN/SLAM as real, capability-gated process-path catalogue entries, deliberately grounded in Amazon FCLM's actual floor vocabulary rather than an invented taxonomy.
+description: ADR 0008 — PREP, PROBLEM_SOLVE, WATER_SPIDER, AMNESTY, RETURNS, TRANSFER, and DAMAGE join PICK/PACK/REBIN/SLAM as real, capability-gated process-path catalogue entries, deliberately grounded in a major e-commerce retailer's FCLM actual floor vocabulary rather than an invented taxonomy.
 ---
 
 # 0008. Seven new process-path families aligned to real FC labor-tracking vocabulary
@@ -29,13 +29,13 @@ water-spider replenishment lap, none of that work has ever had a
 process-path home in this fleet. It either goes unrepresented, or gets
 awkwardly folded into an existing path it doesn't actually belong to.
 
-A real vocabulary — floor terminology and Amazon's FCLM (Fulfillment
+A real vocabulary — floor terminology and a major e-commerce retailer's FCLM (Fulfillment
 Center Labor Management) hierarchy naming — was supplied as the basis
 for closing this gap, explicitly caveated as "common vocabulary, not a
 canonical spec" since naming drifts across building generations. Cross-
 referencing it against this platform's own reference research
 (`amazon-fulfillment-ddd.md`) and this session's prior investigation
-(see the Domain Vision page's "real Amazon fulfillment flow, mapped"
+(see the Domain Vision page's "real e-commerce fulfillment flow, mapped"
 section, `warehouse-docs` PR #9) surfaced a real tension: several of the
 supplied families collide with architectural decisions this fleet
 already made deliberately.
@@ -44,7 +44,7 @@ already made deliberately.
 
 - **Dock, Receive, Decant, Stow, HRV Stow.** `inventory-storage` already
   owns Receive and Stow as OLTP writes against its `Stock` aggregate
-  (`receiveStock`, `stowStock`) — real, Amazon-accurate chaotic stow, not
+  (`receiveStock`, `stowStock`) — real, e-commerce-accurate chaotic stow, not
   a simplification. A receiving/stowing associate's unit of work is
   "record this stock fact," not "claim the next task off a queue." These
   were never process-path candidates; adding them here would duplicate
@@ -143,7 +143,7 @@ on a need that does not yet exist.
   four families were carried over unchanged from a YAML file that only
   ever described this platform's inbound/outbound fulfillment core, not
   the full floor.
-- **The vocabulary is grounded in how Amazon's FCLM hierarchy and real
+- **The vocabulary is grounded in how a major e-commerce retailer's FCLM hierarchy and real
   floor terminology actually name this work**, not an invented taxonomy
   — traceable to a real source rather than guessed at, the same
   discipline this session's Domain Vision research applied to the
