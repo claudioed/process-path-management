@@ -6,9 +6,11 @@
   constructed), `MatchPrefix` and `RequiredCapabilities` (revisable while
   Active via `Revise`), `Direct` (immutable — a structural fact about
   routing shape, reserved for a future multi-hop topology, never an
-  operator-tunable parameter), `Status` (Active/Deactivated). This
-  aggregate is a like-for-like migration of the retired YAML file's
-  schema, field-for-field — not a redesign.
+  operator-tunable parameter), `DestinationLocationRole` (optional,
+  immutable, ADR 0009), `CycleTimeP95` and `Eligibility` (revisable, ADR
+  0010), `Status` (Active/Deactivated). The original fields were a
+  like-for-like migration of the retired YAML file's schema; the later
+  ones were added by ADRs 0009 and 0010.
 - **PathId** — the canonical identity of a process path (e.g. `"PICK"`,
   `"PACK"`, `"REBIN"`, `"SLAM"`). The SAME identity `fulfillment-execution`'s
   `task.Type`, `wes-work-planning`'s `WorkPool.PathId`, and
@@ -35,6 +37,21 @@
 - **Direct** — a structural fact about the path's routing shape (reserved
   for a future multi-hop topology). Immutable once set at `Define` time —
   never revisable via `Revise`.
+- **DestinationLocationRole** — optional declared facility-layout
+  `LocationRole` for a path's completed work: `Drop`, `WorkCenter`,
+  `Shipping`, or unset. Declarative intent only — never validated live
+  against facility-layout (`shared.ErrInvalidDestinationLocationRole`
+  for an unknown value).
+- **CycleTimeP95** — operator-declared p95 release-to-manifest cycle time
+  (ADR 0010), a declared standard, not a measurement. Required, > 0
+  (`ErrInvalidCycleTime`); a Go duration string on the wire.
+- **Eligibility** — value object: `maxUnitsPerLine` (nil = unbounded),
+  `requiredProductAttributes`, `excludedProductAttributes`, `nonSortable`.
+  Zero value is fully permissive; no invariants.
+- **CPTSchedule** — the second aggregate root, one per `SiteId`: an IANA
+  `timezone` plus recurring **Cutoffs** (`cptId`, `localTime` HH:MM,
+  `daysOfWeek` Mon..Sun, `shipMethod`, `eligiblePathIds`). Revised
+  wholesale (ADR 0010).
 - **Status (ACTIVE / DEACTIVATED)** — the activation lifecycle. There is
   no "draft" state — a path is live the instant it is defined; this
   service has no review workflow. Deactivation is one-way and idempotent
@@ -61,6 +78,18 @@
 - **ProcessPath.Deactivate**: idempotent — deactivating an
   already-deactivated path is a no-op success and does NOT republish
   `ProcessPathDeactivated`.
+- **ProcessPath** (all writes): `cycleTimeP95` > 0
+  (`ErrInvalidCycleTime`); `destinationLocationRole` empty or one of
+  Drop/WorkCenter/Shipping. A revision is a no-op only if `matchPrefix`,
+  `requiredCapabilities`, `cycleTimeP95` and `eligibility` are all
+  unchanged.
+- **CPTSchedule.Define/Revise**: valid IANA timezone, ≥1 cutoff, unique
+  `cptId`s; each cutoff validated by `NewCutoff` (non-empty id, HH:MM
+  time, non-empty valid days, non-empty ship method, non-empty
+  eligiblePathIds). `Revise` returns `changed bool`. The cross-aggregate
+  rule — every eligiblePathId references an Active path
+  (`ErrIneligiblePathId`) — is enforced in the `DefineCPTSchedule` use
+  case, not the domain.
 - **A path's identity is permanent once created.** `DefinePath` rejects
   (409) re-defining an id that already exists, active or deactivated — a
   caller wanting to re-use an id after deactivation must be told
@@ -69,9 +98,15 @@
 ## Domain events (past tense, on `warehouse.process-path-management.events`)
 
 `ProcessPathCreated`, `ProcessPathUpdated`, `ProcessPathDeactivated` —
-defined in `internal/domain/shared/events.go`. One shared topic (not one
-per event type), matching the fleet's convention; every message is keyed
-by `path_id` so a consumer replaying the topic sees one path's events in
-publish order. `ProcessPathDeactivated`'s payload carries only `path_id` —
-`match_prefix`/`direct`/`required_capabilities` are omitted (not
+defined in `internal/domain/shared/events.go` — and `CPTScheduleChanged`
+(`internal/domain/cptschedule/events.go`, a full schedule snapshot). One
+shared topic (not one per event type), matching the fleet's convention;
+path events are keyed by `path_id` so a consumer replaying the topic sees
+one path's events in publish order; `CPTScheduleChanged` is keyed by
+`site_id`. `ProcessPathDeactivated`'s payload
+carries only `path_id` — every definition field is omitted (not
 empty-arrayed) since a deactivation carries no definition data.
+
+Every event is also enqueued onto `warehouse.process-path-management.analytics`
+(ADR 0007) in the same outbox transaction; that topic is consumed only by
+this service's own `pathmgmt-projector`.

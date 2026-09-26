@@ -17,8 +17,8 @@ const FeatureList: FeatureItem[] = [
     description: (
       <>
         Defines the canonical process-path catalogue for the fleet.
-        fulfillment-execution, wes-work-planning, and workforce-management
-        are its intended consumers — this service never reads from them.
+        fulfillment-execution, wes-work-planning, workforce-management and
+        order-management consume it — this service never reads from them.
       </>
     ),
   },
@@ -49,9 +49,9 @@ const FeatureList: FeatureItem[] = [
     to: '/docs/adr/0001-process-path-management-bounded-context',
     description: (
       <>
-        Every change publishes onto warehouse.process-path-management.events.
-        No consumer is wired yet in any of the three intended downstream
-        repos — that is documented, not silently assumed.
+        Every change publishes onto warehouse.process-path-management.events,
+        through a transactional outbox, so consumers keep their own local
+        catalogue current without ever calling this service.
       </>
     ),
   },

@@ -2,7 +2,7 @@
 
 ## REST API (inbound adapter — `internal/adapters/inbound/http`)
 
-Six endpoints, all unauthenticated (ADR 0005 removed the REST auth layer
+Eight endpoints, all unauthenticated (ADR 0005 removed the REST auth layer
 ADR 0004 had added — do not re-add auth without checking that ADR first):
 
 | Method | Path | Use case |
@@ -12,7 +12,17 @@ ADR 0004 had added — do not re-add auth without checking that ADR first):
 | `GET` | `/process-paths/{pathId}` | GetPath — regardless of status |
 | `PUT` | `/process-paths/{pathId}` | RevisePath — 422 if deactivated |
 | `DELETE` | `/process-paths/{pathId}` | DeactivatePath — 204, idempotent |
+| `PUT` | `/sites/{siteId}/cpt-schedule` | DefineCPTSchedule — 200, wholesale define/revise; 422 if an eligiblePathId is not an Active path |
+| `GET` | `/sites/{siteId}/cpt-schedule` | GetCPTSchedule — 404 if none |
 | `GET` | `/healthz` | Liveness probe |
+
+`POST`/`PUT /process-paths*` require `cycleTimeP95` (Go duration string,
+> 0; 422 otherwise). The separate `cmd/pathmgmt-reports` binary serves
+`GET /reports/catalogue-growth` and `/reports/catalogue-growth/freshness`
+(ADR 0007); it is not in `apis/openapi.yaml`. The MCP server (`cmd/mcp`)
+exposes read-only `get_process_path`, `list_process_paths`,
+`get_cpt_schedule`, and `get_catalogue_growth_report` (only when
+`REPORTS_BASE_URL` is set).
 
 Every error is `application/problem+json` (RFC 7807), the fleet-standard
 shape. `apis/openapi.yaml` is the full contract, Spectral-linted in CI
@@ -22,9 +32,11 @@ here, including this file.
 ## Testing Discipline
 
 - `make check` after every change (fmt-check, vet, build, lint, test
-  -race); `make check-all` (adds the 90% coverage gate on
-  `./internal/domain/...` and `./internal/application/...`) before
-  pushing.
+  -race); `make check-all` (adds the 90% coverage gate, arch-test and
+  bdd) before pushing. `make coverage` measures
+  `./internal/domain/...`, `./internal/application/...` and
+  `./internal/analytics/...`; CI's `test` job measures domain +
+  application only.
 - **Unit tests are colocated** (`process_path_test.go`, `events_test.go`,
   `usecases_test.go`, `unit_of_work_test.go`, `fakes_test.go`,
   `server_test.go`).
@@ -35,25 +47,35 @@ here, including this file.
   (arch-go) enforces the hexagonal dependency rule described above —
   every PR that reshapes package imports must keep this green, not just
   `go build`.
-- **Integration** (`-tags=integration`, gated behind `DATABASE_URL`):
-  `internal/adapters/outbound/postgres/*_integration_test.go` — the fleet
-  convention is testcontainers-backed, never a skip-gated external broker
-  (see the fleet-ops skill's Kafka-integration-testcontainers pitfall if
-  adding Kafka-touching integration coverage here). Files behind
+- **Integration** (`-tags=integration`):
+  `internal/adapters/outbound/postgres/*_integration_test.go` (skip without
+  `DATABASE_URL`), `internal/adapters/outbound/analyticsstore/postgres_integration_test.go`
+  (skips without `ANALYTICS_DATABASE_URL`), and
+  `internal/adapters/inbound/kafka/analytics_consumer_integration_test.go`,
+  which starts its own broker via testcontainers — the fleet convention for
+  anything Kafka-touching (`TestKafkaIntegrationTestsUseTestcontainers`
+  enforces it). Files behind
   `//go:build integration` are invisible to default `go build`/`go test
   ./...` — always also run `go build -tags=integration ./...` and `go vet
   -tags=integration ./...` before pushing any change to a constructor or
   interface signature integration tests call.
 - **Mutation testing**: `.gremlins.yaml` targets `./internal/domain` only,
-  threshold 99% (measured baseline was 100%, 11/11 mutants killed on
-  2026-09-05) — "lock in today's quality," not an aspirational bar. Run
-  via `make mutation`.
+  threshold 99% (first baseline 11/11 mutants killed on 2026-09-05;
+  re-measured 63/63 killed, 100% efficacy and coverage, on 2026-09-25
+  across `processpath`, `cptschedule` and `shared`) — "lock in today's
+  quality," not an aspirational bar. Run via `make mutation`.
 - **API contract linting**: `spectral lint` against both
   `apis/openapi.yaml` (`.spectral.yaml`) and `apis/asyncapi.yaml`
   (`.spectral.asyncapi.yaml`), CI job `api-lint`.
 - CI (`.github/workflows/ci.yml`) full matrix: `lint`, `test`, `bdd`,
   `integration` (Postgres service container), `mutation-fast` (blocking),
-  `api-lint`, `vuln` (govulncheck), `arch-test`, `helm-lint`/`trivy-scan`
-  (gated to PRs targeting `main` only), `docker-publish` and `release`
-  (main-only). Plus `.github/workflows/codeql.yml` and
-  `.github/workflows/scorecard.yml`.
+  `api-lint`, `vuln` (govulncheck), `arch-test`, `docs-api-drift`
+  (regenerates `docs/docs/api-reference/rest` and fails on any diff —
+  run `npm run clean-api-docs pathmgmt && npm run gen-api-docs pathmgmt`
+  in `docs/` after any `apis/openapi.yaml` change), `web` (lint, `tsc -b`,
+  test, build of `web/`), `drift` (advisory, schedule/manual only),
+  `helm-lint`/`trivy-scan` (gated to PRs targeting `main` only),
+  `docker-publish` and `release` (main-only). Plus
+  `.github/workflows/codeql.yml`, `.github/workflows/scorecard.yml`, and
+  `.github/workflows/docs.yml` (builds the docs site and deploys GitHub
+  Pages on pushes to `develop` touching `docs/**`).

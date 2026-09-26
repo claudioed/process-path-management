@@ -13,7 +13,10 @@ fleet — a Generic Subdomain bounded context (same classification as
 `facility-layout`), replacing a static YAML file
 (`warehouse-infra/config/process-paths/sortable-fc.yaml`) previously
 boot-loaded by `fulfillment-execution`, `wes-work-planning`, and
-`workforce-management`.
+`workforce-management`. Since ADR 0010 it also publishes each path's
+**fulfillment capability contract** (`cycleTimeP95`, `eligibility`) and
+each site's **CPT schedule**, which `order-management` consumes to derive
+its promise.
 
 📚 **Full documentation site:** https://claudioed.github.io/process-path-management/
 
@@ -33,12 +36,18 @@ rather than synchronous HTTP.
 ## Bounded-context boundary (read this first)
 
 This service is the **SOURCE** of the process-path published language — it
-has **no inbound Kafka consumer** and **no synchronous REST dependency** on
-any other service. It publishes `ProcessPathCreated` / `ProcessPathUpdated`
-/ `ProcessPathDeactivated` onto `warehouse.process-path-management.events`
-when `EVENT_PUBLISHER=kafka`. `fulfillment-execution`, `wes-work-planning`
-and `workforce-management` each consume that topic into a local catalogue
-cache (cutover executed 2026-09-06, see ADR 0002). With a database
+consumes **no other context's topic** and makes **no synchronous REST or
+MCP call** to any other service (enforced by
+`internal/architecture/fitness_test.go`'s `TestNoSiblingContextOutboundCalls`).
+Its only Kafka consumer is its own analytics projector, which reads this
+service's own analytics topic (ADR 0007). It publishes `ProcessPathCreated`
+/ `ProcessPathUpdated` / `ProcessPathDeactivated` / `CPTScheduleChanged`
+onto `warehouse.process-path-management.events` when
+`EVENT_PUBLISHER=kafka`. `fulfillment-execution`, `wes-work-planning` and
+`workforce-management` each consume that topic into a local catalogue
+cache (cutover executed 2026-09-06, see ADR 0002); `order-management`
+consumes the same topic for path capability and CPT schedules (ADR 0010).
+With a database
 configured, events go through a **transactional outbox** — committed in
 the same transaction as the aggregate and relayed to Kafka by an
 in-process relay (ADR 0003) — so the store and the topic can never
@@ -54,26 +63,37 @@ depend on application/domain** — identical in shape to every other service
 in the fleet.
 
 ```
-cmd/pathmgmt/                     main.go — the only composition root
+cmd/
+  pathmgmt/                       REST API + in-process outbox relay (:8080)
+  mcp/                            MCP server, Streamable HTTP (:8090, ADR 0006)
+  pathmgmt-projector/             analytics projector: consumes the analytics topic (admin :8091, ADR 0007)
+  pathmgmt-reports/               read-only catalogue-growth report API (:8092, ADR 0007)
 internal/
   domain/
     processpath/                  ProcessPath aggregate
-    shared/                       PathId, Capability, domain events
+    cptschedule/                  CPTSchedule aggregate (per-site CPT cutoffs, ADR 0010)
+    shared/                       PathId, Capability, SiteId, DestinationLocationRole, Eligibility, domain events
   application/
-    ports/                        OUT: ProcessPathRepo, EventPublisher, Clock, PathMetrics
-    usecases/                     DefinePath, RevisePath, DeactivatePath, GetPath, ListPaths
+    ports/                        OUT: ProcessPathRepo, CPTScheduleRepo, EventPublisher, UnitOfWork, Clock, PathMetrics
+    usecases/                     DefinePath, RevisePath, DeactivatePath, GetPath, ListPaths, DefineCPTSchedule, GetCPTSchedule
+  analytics/report/               catalogue-growth read model + ports
   adapters/
-    inbound/http/                 chi handlers, DTOs, RFC 7807 error mapping
-    outbound/postgres/            pgxpool repo, unit of work, outbox publisher + relay, golang-migrate runner
-    outbound/memory/              in-memory repo for tests/local
+    inbound/http/                 chi handlers, DTOs, RFC 7807 error mapping; reports router
+    inbound/mcp/                  MCP tools over the read use cases
+    inbound/kafka/                analytics consumer (this service's OWN analytics topic only)
+    outbound/postgres/            pgxpool repos, unit of work, outbox publisher + relay, golang-migrate runner
+    outbound/memory/              in-memory repos for tests/local
     outbound/events/              log publisher (default)
-    outbound/kafka/               Kafka publisher (EVENT_PUBLISHER=kafka)
+    outbound/kafka/               integration + analytics publishers (EVENT_PUBLISHER=kafka)
+    outbound/analyticsstore/      analytics projection/report store (Postgres + in-memory)
     outbound/telemetry/           OTel traces/metrics/logs
-  architecture/                   arch-go fitness tests
-migrations/                       golang-migrate SQL files
-apis/openapi.yaml                 This service's OWN REST API (6 endpoints)
-apis/asyncapi.yaml                What this service PUBLISHES (publisher-side contract)
+  architecture/                   arch-go + fitness tests
+migrations/                       golang-migrate SQL files (0001–0005); migrations/analytics/ for the report DB
+apis/openapi.yaml                 This service's OWN REST API (8 endpoints)
+apis/asyncapi.yaml                What this service PUBLISHES on the integration topic
 features/                         godog/Gherkin BDD acceptance tests
+web/                              process_path_mfe Module Federation remote (operator SPA)
+charts/process-path-management/   Helm chart (API, MCP, projector, reports, frontend)
 docker-compose.yml                Local Postgres 16
 docs/docs/adr/                    Architecture Decision Records
 ```
@@ -91,11 +111,21 @@ struct tags in the domain packages.
   silently lower-cased.
 - **`requiredCapabilities` must be non-empty.** A path with zero required
   capabilities is not a meaningful business fact.
+- **`cycleTimeP95` is required and must be a positive Go duration**
+  (e.g. `"2h"`, `"90m"`) on both define and revise (ADR 0010). It is
+  returned normalised (`"2h0m0s"`). `eligibility` is optional; its empty
+  value is fully permissive.
+- **`destinationLocationRole` is optional and immutable** — one of
+  `Drop`, `WorkCenter`, `Shipping` when set (ADR 0009).
+- **A CPT schedule's `eligiblePathIds` must reference Active paths.**
+  `PUT /sites/{siteId}/cpt-schedule` replaces the site's schedule
+  wholesale and returns 422 otherwise.
 - **Deactivation is terminal and idempotent.** A deactivated path can never
   be revised again (422), and deactivating an already-deactivated path is a
   no-op 204, never a spurious error or a double-published event.
-- **A no-op revision does not republish `ProcessPathUpdated`.** Consumers
-  never have to diff two identical payloads to notice nothing changed.
+- **A no-op revision does not republish `ProcessPathUpdated`** (nor a
+  no-op schedule revision `CPTScheduleChanged`). Consumers never have to
+  diff two identical payloads to notice nothing changed.
 
 ## Running locally
 
@@ -106,7 +136,7 @@ fully functional over REST:
 
 ```bash
 go run ./cmd/pathmgmt
-# {"level":"INFO","msg":"DATABASE_URL not set, using in-memory ProcessPathRepo"}
+# {"level":"INFO","msg":"DATABASE_URL not set, using in-memory ProcessPathRepo and CPTScheduleRepo"}
 # {"level":"INFO","msg":"http server listening","addr":":8080"}
 ```
 
@@ -128,12 +158,14 @@ By default this service logs its domain events instead of publishing them.
 export EVENT_PUBLISHER=kafka
 export KAFKA_BROKERS=localhost:9092
 go run ./cmd/pathmgmt
-# {"level":"INFO","msg":"kafka event publishing enabled (direct, no outbox: DATABASE_URL not set)","brokers":["localhost:9092"],"topic":"warehouse.process-path-management.events"}
+# {"level":"INFO","msg":"kafka event publishing enabled (direct, no outbox: DATABASE_URL not set)","brokers":["localhost:9092"],"topic":"warehouse.process-path-management.events","analytics_topic":"warehouse.process-path-management.analytics"}
 ```
 
-With `DATABASE_URL` also set, the use cases write events into the
-`outbox_events` table inside the same transaction as the `process_paths`
-change, and a relay goroutine drains that table onto the topic
+Every event is published to BOTH the integration topic and the analytics
+topic (`warehouse.process-path-management.analytics`, ADR 0007). With
+`DATABASE_URL` also set, the use cases write one `outbox_events` row per
+topic inside the same transaction as the aggregate change, and a relay
+goroutine drains that table onto Kafka
 (`"kafka event publishing enabled (transactional outbox)"` /
 `"outbox relay running"` at startup). This is the mode the cluster runs.
 
@@ -159,7 +191,8 @@ curl -s localhost:8080/healthz
 See `charts/process-path-management/values.yaml` for the full configuration
 surface (`kafka.enabled`, `config.eventPublisher`, `otel.enabled`,
 `ingress`, the additive `gatewayApi` HTTPRoute block, autoscaling, an
-`existingSecret` pattern for `DATABASE_URL`).
+`existingSecret` pattern for `DATABASE_URL`, and the optional `mcp`,
+`analytics` and `frontend` workloads — all disabled by default).
 
 ### Configuration
 
@@ -176,9 +209,21 @@ surface (`kafka.enabled`, `config.eventPublisher`, `otel.enabled`,
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | OTLP/gRPC Collector endpoint. |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error`. |
 
+The other binaries read:
+
+| Binary | Variable | Default | Purpose |
+| --- | --- | --- | --- |
+| `cmd/mcp` | `MCP_ADDR` | `:8090` | MCP Streamable HTTP listen address (`/`, `/mcp`; `/healthz`). |
+| `cmd/mcp` | `DATABASE_URL`, `MIGRATIONS_PATH` | *(unset)*, `migrations` | Same store as the API; unset ⇒ in-memory. |
+| `cmd/mcp` | `REPORTS_BASE_URL` | *(unset)* | When set, registers `get_catalogue_growth_report` (calls `pathmgmt-reports`). |
+| `cmd/pathmgmt-projector` | `ANALYTICS_DATABASE_URL` | *(required)* | Analytics Postgres DSN. |
+| `cmd/pathmgmt-projector` | `KAFKA_BROKERS` | `localhost:9092` | Broker for the analytics topic (consumer group `process-path-management-analytics`). |
+| `cmd/pathmgmt-projector` | `ADMIN_ADDR` / `ANALYTICS_MIGRATIONS_PATH` | `:8091` / `migrations/analytics` | Health endpoint; analytics migrations. |
+| `cmd/pathmgmt-reports` | `HTTP_ADDR` / `ANALYTICS_DATABASE_URL` | `:8092` / *(required)* | Read-only reports API. |
+
 ## API
 
-Six endpoints. The full contract, including the RFC 7807 error schema, is in
+Eight endpoints. The full contract, including the RFC 7807 error schema, is in
 [`apis/openapi.yaml`](apis/openapi.yaml).
 
 | Method | Path | Use case |
@@ -188,14 +233,24 @@ Six endpoints. The full contract, including the RFC 7807 error schema, is in
 | `GET` | `/process-paths/{pathId}` | GetPath |
 | `PUT` | `/process-paths/{pathId}` | RevisePath |
 | `DELETE` | `/process-paths/{pathId}` | DeactivatePath |
+| `PUT` | `/sites/{siteId}/cpt-schedule` | DefineCPTSchedule (define or wholesale revise) |
+| `GET` | `/sites/{siteId}/cpt-schedule` | GetCPTSchedule |
 | `GET` | `/healthz` | Liveness probe |
+
+The separate `pathmgmt-reports` binary serves the analytics report (not in
+`apis/openapi.yaml`): `GET /reports/catalogue-growth?from=&to=[&granularity=day]`,
+`GET /reports/catalogue-growth/freshness`, and `GET /healthz`.
+
+The MCP server (`cmd/mcp`) exposes read-only tools: `get_process_path`,
+`list_process_paths`, `get_cpt_schedule`, and — only when
+`REPORTS_BASE_URL` is set — `get_catalogue_growth_report`.
 
 Every error response is `application/problem+json` (RFC 7807), the same
 shape every other service in this fleet emits.
 
-Every route, including `/process-paths*`, is unauthenticated — there is no
-REST auth layer in front of this API (see ADR 0005, which supersedes ADR
-0004's earlier bearer-key adoption).
+Every REST route and MCP tool is unauthenticated — there is no auth layer
+in front of either (see ADR 0005, which supersedes ADR 0004's earlier
+bearer-key adoption).
 
 ### Curl walkthrough
 
@@ -211,8 +266,8 @@ curl -s localhost:8080/healthz
 ```bash
 curl -s -X POST localhost:8080/process-paths \
   -H 'Content-Type: application/json' \
-  -d '{"pathId":"PICK","matchPrefix":"pick","direct":true,"requiredCapabilities":["pick"]}'
-# 201 Created
+  -d '{"pathId":"PICK","matchPrefix":"pick","direct":true,"requiredCapabilities":["pick"],"cycleTimeP95":"2h"}'
+# 201 Created (omitting cycleTimeP95 is a 422)
 ```
 
 **List (active only by default):**
@@ -227,8 +282,18 @@ curl -s 'localhost:8080/process-paths?all=true'   # includes deactivated
 ```bash
 curl -s -X PUT localhost:8080/process-paths/PICK \
   -H 'Content-Type: application/json' \
-  -d '{"matchPrefix":"pick-zone-a","requiredCapabilities":["pick","hazmat"]}'
+  -d '{"matchPrefix":"pick-zone-a","requiredCapabilities":["pick","hazmat"],"cycleTimeP95":"90m"}'
 # 200 OK
+```
+
+**Define a site's CPT schedule:**
+
+```bash
+curl -s -X PUT localhost:8080/sites/sp1/cpt-schedule \
+  -H 'Content-Type: application/json' \
+  -d '{"timezone":"America/Sao_Paulo","cutoffs":[{"cptId":"cpt-1800","localTime":"18:00","daysOfWeek":["Mon","Tue"],"shipMethod":"ground","eligiblePathIds":["PICK"]}]}'
+# 200 OK
+curl -s localhost:8080/sites/sp1/cpt-schedule
 ```
 
 **Deactivate:**
@@ -245,7 +310,7 @@ same feedback CI gives you post-push is available locally, pre-commit:
 
 ```bash
 make check       # fmt-check + vet + build + lint + test -race
-make check-all   # check + coverage (gate: 90% on domain + application)
+make check-all   # check + coverage (90% gate) + arch-test + bdd
 ```
 
 | Target | What it runs |
@@ -255,11 +320,13 @@ make check-all   # check + coverage (gate: 90% on domain + application)
 | `fmt` / `fmt-check` | `gofmt -w .` / fail if `gofmt -l .` is non-empty |
 | `lint` | `golangci-lint run ./...` (CI pins `v2.13.1`) |
 | `test` | `go test ./... -race` |
-| `coverage` | coverage profile + the 90% gate |
+| `coverage` | coverage profile + the 90% gate (domain + application + analytics; CI's `test` job measures domain + application) |
 | `bdd` | `go test ./... -run TestFeatures -v` (godog/Gherkin) |
 | `arch-test` | `go test ./internal/architecture/... -v` (arch-go fitness) |
-| `integration` | `go test -tags=integration ./... -race -count=1` (needs `DATABASE_URL`) |
-| `mutation` | `gremlins unleash ./internal/domain` (see `.gremlins.yaml`) |
+| `integration` | `go test -tags=integration ./... -race -count=1` (Postgres tests skip without `DATABASE_URL`/`ANALYTICS_DATABASE_URL`; the Kafka consumer test uses testcontainers) |
+| `mutation-fast` / `mutation` | `gremlins unleash ./internal/domain` (see `.gremlins.yaml`) |
+| `api-lint` | Spectral on both specs |
+| `vuln` | `govulncheck ./...` |
 
 Additional verification surfaces, each with its own CI job:
 
@@ -287,22 +354,28 @@ CI (`.github/workflows/ci.yml`) runs the full fleet-standard matrix:
 container), **`mutation-fast`** (blocking, `./internal/domain`),
 **`api-lint`** (Spectral against both `apis/openapi.yaml` and
 `apis/asyncapi.yaml`), **`vuln`** (govulncheck), **`arch-test`** (arch-go
-fitness tests), **`helm-lint`**/**`trivy-scan`** (gated to
+and fitness tests), **`docs-api-drift`** (regenerates
+`docs/docs/api-reference/rest` from `apis/openapi.yaml` and fails on any
+diff), **`web`** (lint, typecheck, test and build of the `web/` remote),
+**`drift`** (advisory, weekly/manual only: deadcode, `go mod tidy -diff`,
+knip, coverage quality), **`helm-lint`**/**`trivy-scan`** (gated to
 pull-request-targeting-`main` only, per this fleet's convention —
 this repo has no `main`-targeting PR yet, so these two jobs are expected
 to skip, not fail), **`docker-publish`** (main-only, cosign keyless signing
 + SPDX SBOM attestation), and **`release`** (main-only, auto-tagged
 GitHub release + published Helm chart). Plus `.github/workflows/codeql.yml`
 (security-extended CodeQL analysis) and `.github/workflows/scorecard.yml`
-(OpenSSF Scorecard).
+(OpenSSF Scorecard), and `.github/workflows/docs.yml`, which builds this
+documentation site and deploys it to GitHub Pages on pushes to `develop`
+that touch `docs/**`.
 
-**Mutation testing baseline (measured, not fabricated):** run locally on
-2026-09-05 against `./internal/domain` (the only aggregate in this
-service's domain layer today) — **11 mutants total, all killed, zero
-survivors: 100.00% efficacy, 100.00% mutator coverage.** `.gremlins.yaml`
-sets the threshold to 99 (strictly below the measured 100%), the same
-"lock in today's quality" philosophy every other repo in this fleet's
-`.gremlins.yaml` uses.
+**Mutation testing baseline (measured, not fabricated):** the first run on
+2026-09-05 found 11 mutants, all killed. Re-measured 2026-09-25 against
+`./internal/domain` (now `processpath`, `cptschedule` and `shared`) —
+**63 mutants, all killed, zero survivors: 100.00% efficacy, 100.00%
+mutator coverage.** `.gremlins.yaml` sets the threshold to 99 (strictly
+below the measured 100%), the same "lock in today's quality" philosophy
+every other repo in this fleet's `.gremlins.yaml` uses.
 
 ## Helm chart
 
@@ -317,12 +390,13 @@ have all migrated to. `helm lint` and two real `helm template` renders
 
 ## Known gaps
 
-- **No consumer wired in any of the three intended downstream repos.**
-  `fulfillment-execution`, `wes-work-planning`, and `workforce-management`
-  do not yet have a Kafka consumer for
-  `warehouse.process-path-management.events` — this service's publisher is
-  real and tested, but genuinely unconsumed today. See
+- **`destinationLocationRole` is published but not yet read by any
+  consumer.** None of the four consuming repos decodes
+  `destination_location_role` today. See
   [docs/docs/ecosystem/context-map.md](docs/docs/ecosystem/context-map.md).
+- **The analytics topic has no AsyncAPI document.**
+  `apis/asyncapi.yaml` covers the integration topic only; the analytics
+  envelope is described in ADR 0007.
 
 ## Architecture Decision Records
 
@@ -333,10 +407,13 @@ have all migrated to. `helm lint` and two real `helm template` renders
 5. [0005 — Removing the REST auth layer](docs/docs/adr/0005-remove-rest-auth.md)
 6. [0006 — MCP server as a second inbound adapter](docs/docs/adr/0006-mcp-server-second-inbound-adapter.md)
 7. [0007 — Analytical data product (report) via a separate analytics topic](docs/docs/adr/0007-analytical-data-product.md)
+8. [0008 — Seven new process-path families aligned to real FC labor-tracking vocabulary](docs/docs/adr/0008-fclm-aligned-process-path-families.md)
+9. [0009 — Optional destination LocationRole on a ProcessPath](docs/docs/adr/0009-destination-location-role-on-process-path.md)
+10. [0010 — Process paths publish a fulfillment capability contract (cycle time, eligibility, CPT schedule)](docs/docs/adr/0010-fulfillment-capability-contract.md)
 
 ## License
 
-MIT (or match the other repos' licensing — TBD).
+MIT — see [LICENSE](LICENSE).
 
 ## Operator micro-frontend (`web/`)
 
