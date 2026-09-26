@@ -34,11 +34,13 @@ dependency** — no inbound Kafka consumer, no synchronous REST dependency
 in either direction. It never calls into any other service, synchronously
 or otherwise; every change propagates exclusively via Kafka.
 
-**Known, honestly-documented gap:** as of the last ADR update, none of the
-three intended consumers has a Kafka consumer wired to this topic yet —
-see `docs/docs/ecosystem/context-map.md` for the current, real state
-before assuming an integration is live. Verify against that file (or the
-sibling repos directly) rather than assuming this note is still current.
+**Consumers (live):** the three above replaced their static YAML catalogue
+with this topic on 2026-09-06 (ADR 0002); `order-management` also
+consumes it for `cycle_time_p95`/`eligibility` and `CPTScheduleChanged`
+(ADR 0010). `warehouse-ops-agent` reads this service over MCP;
+`warehouse-console` mounts its `web/` remote. See
+`docs/docs/ecosystem/context-map.md`, and verify against the sibling
+repos' `origin/develop` before relying on it.
 
 ## Architecture (NON-NEGOTIABLE)
 
@@ -58,34 +60,49 @@ No framework, HTTP, Kafka, or SQL types in the domain layer. No JSON
 struct tags in the domain packages.
 
 ```
-cmd/pathmgmt/                     main.go — the only composition root
+cmd/
+  pathmgmt/                       REST API + in-process outbox relay (:8080)
+  mcp/                            MCP server, Streamable HTTP (:8090, ADR 0006)
+  pathmgmt-projector/             analytics projector (admin :8091, ADR 0007)
+  pathmgmt-reports/               read-only catalogue-growth report API (:8092, ADR 0007)
 internal/
   domain/
     processpath/                  ProcessPath aggregate (process_path.go)
-    shared/                       PathId, Capability value objects; domain events
+    cptschedule/                  CPTSchedule aggregate + CPTScheduleChanged (ADR 0010)
+    shared/                       PathId, Capability, SiteId, DestinationLocationRole, Eligibility; domain events
   application/
-    ports/                        OUT: ProcessPathRepo, EventPublisher, UnitOfWork, Clock, PathMetrics
-    usecases/                     DefinePath, RevisePath, DeactivatePath, GetPath, ListPaths
+    ports/                        OUT: ProcessPathRepo, CPTScheduleRepo, EventPublisher, UnitOfWork, Clock, PathMetrics
+    usecases/                     DefinePath, RevisePath, DeactivatePath, GetPath, ListPaths, DefineCPTSchedule, GetCPTSchedule
+  analytics/report/               catalogue-growth read model + ports
   adapters/
-    inbound/http/                 chi handlers, DTOs, RFC 7807 error mapping (server.go)
-    outbound/postgres/            pgxpool repo, unit of work, outbox publisher + relay, golang-migrate runner
-    outbound/memory/               in-memory repo for tests/local (also the zero-DATABASE_URL runtime path)
-    outbound/events/               log publisher (default when EVENT_PUBLISHER != kafka)
-    outbound/kafka/                Kafka publisher (EVENT_PUBLISHER=kafka), topic constant
-    outbound/telemetry/            OTel traces/metrics/logs
-  architecture/                    arch-go fitness tests (architecture_test.go)
-migrations/                        golang-migrate SQL files (0001_init, 0002_outbox)
-apis/openapi.yaml                  This service's OWN REST API (6 endpoints)
-apis/asyncapi.yaml                 What this service PUBLISHES (publisher-side contract only — no consumer side)
-features/                          godog/Gherkin BDD acceptance tests
-web/                                process-path-mfe: Vite + React Module Federation remote (operator SPA)
-docker-compose.yml                  Local Postgres 16
-docs/docs/adr/                      Architecture Decision Records (Nygard format)
+    inbound/http/                 chi handlers, DTOs, RFC 7807 error mapping (server.go); reports router
+    inbound/mcp/                  read-only MCP tools over the read use cases
+    inbound/kafka/                analytics consumer — this service's OWN analytics topic only
+    outbound/postgres/            pgxpool repos, unit of work, outbox publisher + relay, golang-migrate runner
+    outbound/memory/              in-memory repos for tests/local (also the zero-DATABASE_URL runtime path)
+    outbound/events/              log publisher (default when EVENT_PUBLISHER != kafka)
+    outbound/kafka/               integration + analytics publishers (EVENT_PUBLISHER=kafka), topic constants
+    outbound/analyticsstore/      analytics projection/report store
+    outbound/telemetry/           OTel traces/metrics/logs
+  architecture/                   arch-go + fitness tests (architecture_test.go, fitness_test.go)
+migrations/                       golang-migrate SQL files (0001–0005); migrations/analytics/ for the report DB
+apis/openapi.yaml                 This service's OWN REST API (8 endpoints)
+apis/asyncapi.yaml                What this service PUBLISHES on the integration topic
+features/                         godog/Gherkin BDD acceptance tests
+web/                              process_path_mfe: Vite + React Module Federation remote (operator SPA)
+charts/process-path-management/   Helm chart (API, MCP, projector, reports, frontend)
+docker-compose.yml                Local Postgres 16
+docs/docs/adr/                    Architecture Decision Records (Nygard format)
 ```
 
-This service has **no inbound Kafka consumer package** — unlike most of
-the fleet, it never subscribes to anyone else's topic. Its only Kafka role
-is the outbound publisher (`internal/adapters/outbound/kafka`).
+This service **never subscribes to another context's topic**. Its only
+Kafka consumer (`internal/adapters/inbound/kafka`, run by
+`cmd/pathmgmt-projector`) reads its OWN analytics topic
+`warehouse.process-path-management.analytics` (ADR 0007). Every event is
+enqueued onto both the integration and the analytics topic in the same
+outbox transaction. `TestNoSiblingContextOutboundCalls` fails the build if
+`internal/adapters/outbound/**` imports `net/http` — no REST or MCP client
+to a sibling may ever be added.
 
 ### Persistence and event delivery mode matrix
 
@@ -141,15 +158,8 @@ make api-lint        # Spectral lint on apis/openapi.yaml and apis/asyncapi.yaml
 make vuln            # govulncheck ./...
 ```
 
-Additional verification surfaces with their own CI job, run manually when
-touching that surface:
-
-```bash
-spectral lint apis/openapi.yaml --ruleset .spectral.yaml --fail-severity=warn
-spectral lint apis/asyncapi.yaml --ruleset .spectral.asyncapi.yaml --fail-severity=warn
-helm lint charts/process-path-management
-govulncheck ./...
-```
+Helm: `helm lint charts/process-path-management` (CI runs it only on PRs
+targeting `main`).
 
 Local run, no dependencies:
 
@@ -162,7 +172,7 @@ With Postgres:
 
 ```bash
 docker compose up -d postgres          # Postgres 16 on localhost:5436
-export DATABASE_URL='postgres://pathmgmt:***@localhost:5436/pathmgmt?sslmode=disable'
+export DATABASE_URL='postgres://pathmgmt:pathmgmt@localhost:5436/pathmgmt?sslmode=disable'
 go run ./cmd/pathmgmt                  # migrations run automatically at startup
 ```
 
@@ -209,11 +219,14 @@ Full REST API endpoint table, testing discipline, and CI job matrix:
   operation, changed request/response shape, changed
   summary/description), regenerate and commit the `.mdx`/`.json`
   companions — they are committed generated output, not hand-written.
+  CI's `docs-api-drift` job runs `npm run clean-api-docs pathmgmt && npm
+  run gen-api-docs pathmgmt` and fails on any diff.
 
 ## What this service deliberately does not own
 
 - Does not decide dispatch, routing, or task assignment — defines WHAT a
   path is and WHICH capabilities it requires; never claims, assigns, or
   completes work. That is `fulfillment-execution`'s job.
-- Does not call any consumer synchronously, ever.
-- Has no inbound Kafka consumer of its own.
+- Does not call any other context — REST, MCP or otherwise — ever.
+- Consumes no other context's topic (its only consumer reads its own
+  analytics topic).

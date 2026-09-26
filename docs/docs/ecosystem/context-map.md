@@ -2,44 +2,46 @@
 id: context-map
 title: Context Map
 sidebar_label: Context Map
-description: This service's one relationship — outbound-only, published-language, NOT yet consumed by any of its three intended downstream services.
+description: This service's relationships — Open Host Service / Published Language source for four downstream consumers, an MCP supplier to warehouse-ops-agent, and a micro-frontend mounted by warehouse-console. It never calls any sibling context.
 ---
 
 # Context Map
 
-:::warning[Read this before the diagram]
-`process-path-management` currently has **zero live integration** with any
-other warehouse-systems service. It publishes ProcessPath domain events
-onto Kafka when `EVENT_PUBLISHER=kafka`, but as of this document, **none**
-of `fulfillment-execution`, `wes-work-planning`, or `workforce-management`
-has a consumer wired to that topic. This is a separate, not-yet-done
-follow-up PR in each of those three repos — it is documented here as a
-real, honest gap, not implied to already be wired.
-:::
-
-Process Path Management has exactly **one** relationship in the fleet: it
-is the **Open Host Service / Published Language source** for the
-`warehouse.process-path-management.events` topic, with
-`fulfillment-execution`, `wes-work-planning`, and `workforce-management` as
-its intended (but not yet actual) **Conformist** consumers. It has **zero
-inbound dependency** on any other service — this context is the SOURCE of
-the process-path published language, never a consumer of anyone else's.
+Process Path Management is the **Open Host Service / Published Language
+source** for the `warehouse.process-path-management.events` topic. It has
+**zero outbound dependency** on any other bounded context: it consumes no
+other context's topic and makes no synchronous REST or MCP call to any
+sibling. This is enforced in code by
+`internal/architecture/fitness_test.go`'s
+`TestNoSiblingContextOutboundCalls`, which fails the build if
+`internal/adapters/outbound/**` ever imports `net/http`. Every edge below
+points *away* from this service (it publishes) or *into* it (a sibling
+reads it); none is a call this service makes.
 
 ```mermaid
 flowchart LR
     subgraph PPM["This service"]
-        P["<b>process-path-management</b><br/>Generic subdomain<br/>the process-path catalogue"]
+        P["<b>process-path-management</b><br/>Generic subdomain<br/>the process-path catalogue + CPT schedules"]
+        PROJ["pathmgmt-projector<br/>(own analytics read model)"]
     end
 
-    subgraph WES["WES tier consumers (NOT yet wired)"]
+    subgraph WES["WES tier (Conformist)"]
         FE["<b>fulfillment-execution</b><br/>Core subdomain"]
         WWP["<b>wes-work-planning</b><br/>Core subdomain"]
         WFM["<b>workforce-management</b><br/>Supporting subdomain"]
     end
 
-    P -.->|"warehouse.process-path-management.events<br/>ProcessPathCreated/Updated/Deactivated<br/>(topic exists, publisher is real and tested;<br/>NO consumer wired yet)"| FE
-    P -.->|"same topic<br/>(NOT yet wired)"| WWP
-    P -.->|"same topic<br/>(NOT yet wired)"| WFM
+    OM["<b>order-management</b><br/>Core subdomain"]
+    AGENT["<b>warehouse-ops-agent</b>"]
+    CONSOLE["<b>warehouse-console</b><br/>MFE shell"]
+
+    P -->|"warehouse.process-path-management.events<br/>ProcessPathCreated/Updated/Deactivated"| FE
+    P -->|"same topic"| WWP
+    P -->|"same topic"| WFM
+    P -->|"same topic<br/>ProcessPath* (cycle_time_p95, eligibility)<br/>+ CPTScheduleChanged"| OM
+    P -->|"warehouse.process-path-management.analytics"| PROJ
+    AGENT -->|"MCP (read-only)<br/>get_process_path, list_process_paths"| P
+    CONSOLE -->|"mounts process_path_mfe remote"| P
 
     classDef this fill:#b45309,stroke:#78350f,color:#fff,stroke-width:4px;
     classDef core fill:#1e3a8a,stroke:#1e293b,color:#fff;
@@ -47,31 +49,70 @@ flowchart LR
     class P this;
     class FE core;
     class WWP core;
+    class OM core;
     class WFM supporting;
 ```
 
-**Dashed edges are strategically real (the topic, the event shapes, the
-publisher) but have no consumer wired to them yet.** Nothing in this
-diagram is a solid, bidirectionally-live edge — unlike, say,
-`labor-performance`'s live inbound consumption of
-`fulfillment-execution`'s `TaskCompleted`.
-
-## → `fulfillment-execution`, `wes-work-planning`, `workforce-management` (planned, not yet wired)
+## → `fulfillment-execution`, `wes-work-planning`, `workforce-management` (Conformist, live)
 
 **Strategically: this context is the Open Host Service / Supplier; all
-three are downstream Conformists.** Each of these three services
-previously boot-loaded the process-path catalogue from a static YAML file
-(`warehouse-infra/config/process-paths/sortable-fc.yaml`) at startup. This
-service is designed to replace that file as their source of truth, but —
-as of this document — **none of the three has actually built the Kafka
-consumer that would complete that replacement.** They are, today, still
-reading whatever static configuration they read before this service
-existed; this service's publisher runs independently and its messages are,
-for now, unconsumed.
+three are downstream Conformists.** Each previously boot-loaded the
+process-path catalogue from a static YAML file
+(`warehouse-infra/config/process-paths/sortable-fc.yaml`). The cutover to
+this service's events was executed on 2026-09-06
+([ADR 0002](/docs/adr/0002-yaml-to-kafka-cutover)): each consumer has an
+`internal/adapters/outbound/kafkacatalog` package that replays this topic
+into a local, in-memory catalogue using a per-process-unique consumer
+group, selected with `PATH_CATALOGUE_SOURCE=kafka`. The consumers' own
+binaries still default to `file`; `warehouse-infra` sets `kafka` (its
+`deploy_process_path_kafka_source` variable defaults to `true`), and the
+YAML file is kept only as the rollback payload.
 
-Wiring each of those three consumers is explicitly **out of scope for this
-service's own repository** — it is a separate, later PR in each of those
-three repos, tracked as a known follow-up, not a silent gap.
+These three consumers decode the `ProcessPath*` events only. None of them
+reads `destination_location_role`
+([ADR 0009](/docs/adr/0009-destination-location-role-on-process-path)),
+`cycle_time_p95`/`eligibility`, or `CPTScheduleChanged` today.
+
+## → `order-management` (Conformist, live)
+
+`order-management` consumes the same topic with two separate consumers
+(`internal/adapters/outbound/kafkacatalog` and
+`internal/adapters/outbound/kafkacptschedule`), each with its own
+per-process-unique consumer group, enabled by `PATH_CATALOGUE_SOURCE=kafka`
+(its binary defaults to `none`; `warehouse-infra` sets `kafka`). The
+catalogue consumer decodes each path's `cycle_time_p95` and `eligibility`;
+the schedule consumer decodes `CPTScheduleChanged`. Together they are the
+fulfillment capability contract of
+[ADR 0010](/docs/adr/0010-fulfillment-capability-contract), from which
+`order-management` derives its promise (its ADR 0014).
+
+## ← `warehouse-ops-agent` (MCP, read-only)
+
+`warehouse-ops-agent` calls this service's MCP server (`cmd/mcp`,
+[ADR 0006](/docs/adr/0006-mcp-server-second-inbound-adapter)) via
+`PROCESS_PATH_MANAGEMENT_MCP_ENDPOINT`, using the `get_process_path` and
+`list_process_paths` tools. The MCP server also offers `get_cpt_schedule`
+and, when `REPORTS_BASE_URL` is set, `get_catalogue_growth_report`. The
+direction matters: the agent calls in; this service never calls the
+agent.
+
+## ← `warehouse-console` (micro-frontend)
+
+The console shell mounts this repository's `web/` remote
+(`process_path_mfe`) as the operator screen for defining, revising and
+deactivating paths. The remote talks only to this service's own REST API
+(through Kong at `/api/process-path-management` in the local cluster).
+
+## Own analytics topic (not a sibling integration)
+
+Every domain event is also published onto
+`warehouse.process-path-management.analytics`
+([ADR 0007](/docs/adr/0007-analytical-data-product)). The only consumer is
+this service's own `pathmgmt-projector` (consumer group
+`process-path-management-analytics`), which projects the "Process Path
+Catalogue Growth & Change" report served by `pathmgmt-reports`. It
+projects the three `ProcessPath*` event types and ignores
+`CPTScheduleChanged`.
 
 The envelope (identical CloudEvents-like shape across every
 warehouse-systems publisher):
@@ -86,7 +127,8 @@ warehouse-systems publisher):
     "path_id": "PICK",
     "match_prefix": "pick",
     "direct": true,
-    "required_capabilities": ["pick"]
+    "required_capabilities": ["pick"],
+    "cycle_time_p95": "2h0m0s"
   }
 }
 ```
@@ -100,10 +142,10 @@ Every other cross-context integration in this fleet that resembles "context
 A needs a fact that context B owns" is Kafka-driven, never a synchronous
 hot-path call: `StockReserved`, `ShiftPlanCommitted`, and `TaskCompleted`
 are all Kafka events consumed asynchronously, never RPC'd for on every
-request. A synchronous read-through here (each of the three consumers
+request. A synchronous read-through here (each consumer
 calling this service's REST API on every `claimNext`/dispatch decision)
 would put this Generic-subdomain service's availability on the hot path of
-three Core-subdomain contexts' most latency-sensitive operations — exactly
+the consuming contexts' most latency-sensitive operations — exactly
 the anti-pattern this fleet's other integrations already avoid. See
 [ADR 0001](/docs/adr/0001-process-path-management-bounded-context) for the
 full reasoning.

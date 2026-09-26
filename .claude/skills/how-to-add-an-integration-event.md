@@ -18,16 +18,17 @@ Conformist consumers. Per this repo's own `AGENTS.md`: "It has **zero
 inbound dependency** — no inbound Kafka consumer, no synchronous REST
 dependency in either direction. It never calls into any other service,
 synchronously or otherwise; every change propagates exclusively via
-Kafka." This is enforced in code, not just prose:
+Kafka." (The one Kafka consumer this repo does have,
+`internal/adapters/inbound/kafka/analytics_consumer.go`, reads only this
+service's OWN analytics topic for `cmd/pathmgmt-projector`, ADR 0007 — it
+is not a sibling-context subscription.) This is enforced in code, not just prose:
 `internal/architecture/fitness_test.go`'s `TestNoSiblingContextOutboundCalls`
 fails the build if `internal/adapters/outbound/**` ever imports
 `"net/http"` as an HTTP client — there is no legitimate outbound
 synchronous call this service should ever make to another bounded
-context, and no legitimate reason to add an inbound consumer package
-either (this repo also has no `internal/adapters/inbound/kafka/`
-directory at all today — it's a rule enforced by absence, not just a
-static-analysis check). If you are asked to make this service consume
-something, stop and confirm that's really the intent — it would reverse
+context, and no legitimate reason to subscribe to a sibling's topic
+either. If you are asked to make this service consume
+something from another context, stop and confirm that's really the intent — it would reverse
 this service's whole strategic position as the fleet's Published
 Language source (ADR 0001).
 
@@ -46,10 +47,12 @@ All four of this service's event types
 the ONLY way fulfillment-execution, wes-work-planning, and
 workforce-management learn about a process-path change." Still confirm a
 sibling context genuinely needs your new event before wiring it — check
-`docs/docs/ecosystem/context-map.md` for who's actually downstream (as of
-writing, honestly documented as "none of the three intended consumers
-has a Kafka consumer wired to this topic yet" — verify against that file
-rather than assuming it's stale).
+`docs/docs/ecosystem/context-map.md` for who's actually downstream
+(fulfillment-execution, wes-work-planning and workforce-management
+consume `ProcessPath*`; order-management also consumes `cycle_time_p95`,
+`eligibility` and `CPTScheduleChanged`) — and verify by grepping the
+consumer's decoder in the sibling repo on `origin/develop`, since a field
+on the wire is not the same as a field someone reads.
 
 ### 2. Envelope: this repo's own shape (CloudEvents-*like*, not strict CloudEvents)
 
